@@ -11,10 +11,10 @@
 
 ### Task 1 — Modal account + first job (60 min)
 
-- [ ] Sign up at https://modal.com (uses GitHub OAuth). Get your $30 free credit.
-- [ ] Install CLI: `pip install modal && modal setup`
-- [ ] Run their hello-world example (their landing docs walk you through). Should complete in <1 min.
-- [ ] Run a GPU hello-world:
+- [x] Sign up at https://modal.com (uses GitHub OAuth). Get your $30 free credit.
+- [x] Install CLI: `pip install modal && modal setup`
+- [x] Run their hello-world example (their landing docs walk you through). Should complete in <1 min.
+- [x] Run a GPU hello-world:
   ```python
   import modal
   app = modal.App("gpu-test")
@@ -27,7 +27,7 @@
   ```
   Confirm you see the T4 name print. Cost so far: ~$0.05.
 
-**Success**: Modal shows the T4 job succeeded in the dashboard.
+**Success**: Modal shows the T4 job succeeded in the dashboard. ✅ Done 2026-08-30.
 
 ---
 
