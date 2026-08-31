@@ -52,24 +52,14 @@
 
 ---
 
-### Task 3 — Create the flagship repo (30 min)
+### Task 3 — Create the flagship benchmarks folder (30 min)
 
-- [ ] `mkdir ~/projects/vllm-benchmarks && cd $_ && git init`
-- [ ] Add README.md with a stub:
-  ```markdown
-  # LLM Inference Benchmarks
-  
-  Reproducible benchmarks for LLM serving on a single GPU.
-  Comparing HuggingFace transformers baseline vs vLLM with continuous
-  batching, PagedAttention, prefix caching, and quantization.
-  
-  **Status**: Week 1 of 12 — dev environment setup.
-  ```
-- [ ] Commit the modal T4/A100 test scripts under `experiments/wk01_env_check/`
-- [ ] Push to a new public GitHub repo (mle-transition or vllm-benchmarks — your call)
-- [ ] Add link to `~/projects/mle-transition/progress.md`
+- [x] Decided to keep everything under `mle-transition/` rather than a separate repo — simpler, one public link
+- [x] Created `benchmarks/README.md` with baseline table and 12-week roadmap
+- [x] Experiment scripts already committed under `experiments/wk01_env_check/`
+- [x] Repo is public at github.com/schemmy/mle-transition
 
-**Success**: Repo is public, has a real commit, README states the 12-week plan.
+**Success**: `benchmarks/README.md` is live with the HF baseline number. ✅ Done 2026-08-30.
 
 ---
 
