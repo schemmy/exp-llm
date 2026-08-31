@@ -10,7 +10,7 @@ Convention: one line per week. Mark ✅ done, 🟡 partial, ❌ skipped. Add a l
 
 | Wk | Dates | Task summary | Status | Artifact / notes |
 |----|-------|--------------|--------|------------------|
-| 1  | 08-30 → 09-05 | GPU dev env on Modal or RunPod | ☐ | |
+| 1  | 08-30 → 09-05 | GPU dev env on Modal or RunPod | ✅ | HF baseline ~31 tok/s (Qwen2.5-0.5B, A100, fp16) · [repo](https://github.com/schemmy/mle-transition) |
 | 2  | 09-06 → 09-12 | HF baseline for 7B model | ☐ | |
 | 3  | 09-13 → 09-19 | vLLM install + baseline benchmark | ☐ | |
 | 4  | 09-20 → 09-26 | vLLM + PagedAttention papers; batch sweep | ☐ | |
@@ -50,3 +50,4 @@ To be filled in at end of Wk 36. Reevaluate whether to stick with CUDA vs. swap 
 *(Note anything cross-cutting — realizations, direction changes, external events)*
 
 - **2026-08-30**: Plan created. Not job-search-urgent; long-term skill build. Decided to focus on inference + platform tracks over pure model-training MLE.
+- **2026-08-31**: Wk 1 complete. Modal set up, HF baseline 31 tok/s on A100 (Qwen2.5-0.5B). Kept everything in one repo (no separate vllm-benchmarks). PagedAttention orientation done.
