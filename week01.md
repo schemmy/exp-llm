@@ -33,11 +33,20 @@
 
 ### Task 2 — Rented A100, load a small model (2 hrs)
 
-- [ ] Modify the above to use `gpu="A100"` and load a small model (Qwen 2.5 0.5B or Llama 3.2 1B — deliberately tiny for iteration speed)
-- [ ] Use HuggingFace `transformers`, generate 100 tokens from a fixed prompt, print the tokens/sec
-- [ ] Repeat 3 times, note variance
+- [x] Modify the above to use `gpu="A100"` and load a small model (Qwen 2.5 0.5B or Llama 3.2 1B — deliberately tiny for iteration speed)
+- [x] Use HuggingFace `transformers`, generate 100 tokens from a fixed prompt, print the tokens/sec
+- [x] Repeat 3 times, note variance
 
-**Success**: You get a tokens/sec number for a 1B model on A100. Doesn't need to be optimized — this is the CPU-baseline equivalent, we're just wiring things up.
+**Success**: You get a tokens/sec number for a 1B model on A100. Doesn't need to be optimized — this is the CPU-baseline equivalent, we're just wiring things up. ✅ Done 2026-08-30.
+
+**Baseline results** — Qwen2.5-0.5B, HuggingFace transformers (fp16), A100, 100 tokens, greedy decode:
+| Run | tok/s | Notes |
+|-----|-------|-------|
+| 1   | 10.6  | CUDA warmup (kernel compilation + VRAM load) — discard |
+| 2   | 30.9  | steady state |
+| 3   | 31.0  | steady state |
+
+**Steady-state baseline: ~31 tok/s** (Runs 2-3). This is the unoptimized HF number everything else beats.
 
 **Note**: This will cost ~$5-10 depending on how much you iterate.
 
