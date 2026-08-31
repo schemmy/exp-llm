@@ -65,11 +65,13 @@
 
 ### Task 4 — Read + skim (60-90 min)
 
-- [ ] Skim the vLLM landing docs: https://docs.vllm.ai
-- [ ] Skim PagedAttention section of the vLLM paper (https://arxiv.org/abs/2309.06180) — deep-read scheduled for Wk 4, this is just orientation
-- [ ] Bookmark the paper in `resources.md` (already done)
+- [x] Skim the vLLM landing docs: https://docs.vllm.ai
+- [x] Skim PagedAttention section of the vLLM paper (https://arxiv.org/abs/2309.06180) — deep-read scheduled for Wk 4, this is just orientation
+- [x] Bookmark the paper in `resources.md` (already done)
 
-**Success**: You can articulate in one sentence what PagedAttention is optimizing (memory fragmentation in the KV cache). Don't try to understand the details yet.
+**Success**: You can articulate in one sentence what PagedAttention is optimizing (memory fragmentation in the KV cache). Don't try to understand the details yet. ✅ Done 2026-08-31.
+
+**One-sentence summary**: PagedAttention 把 KV Cache 切成固定大小的 block 按需分配，将碎片率从 ~60–80% 降至 <4%，使同等显存可服务更多并发请求。
 
 ---
 
