@@ -15,7 +15,7 @@ def run_7b():
     model_id = "Qwen/Qwen2.5-7B-Instruct"
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, dtype=torch.float32
+        model_id, dtype=torch.float16
     ).cuda()
 
     prompt = "The key to efficient LLM inference is"
