@@ -11,31 +11,32 @@
 
 ### Task 1 — Modal 环境装 vLLM (30 min)
 
-- [ ] 新建脚本，image 里装 vllm：
-  ```python
-  image = (
-      modal.Image.debian_slim()
-      .pip_install("vllm")
-  )
-  ```
-  vLLM 会自动带 torch，不需要单独装。
-- [ ] 用 `vllm.LLM` 加载模型，`SamplingParams` 控制生成参数
-- [ ] 跑 3 次，记录 tok/s
+- [x] 新建脚本，image 里装 vllm（需要用 `nvidia/cuda:12.4.0-devel-ubuntu22.04` 基础镜像，debian_slim 没有 nvcc，FlashInfer JIT 编译会失败）
+- [x] 用 `vllm.LLM` 加载模型，`SamplingParams` 控制生成参数
+- [x] 跑 3 次，记录 tok/s
 
-**Success**: vLLM 在 Modal 上跑通，没有报错。
+**Results** — Qwen2.5-7B-Instruct, vLLM (fp16), A100, 100 tokens, greedy decode:
+| Run | tok/s | Notes |
+|-----|-------|-------|
+| 1   | 78.2  | first run (CUDA graph already warmed up by vLLM init) |
+| 2   | 80.6  | steady state |
+| 3   | 80.6  | steady state |
+
+**Steady-state: ~80 tok/s** ✅ Done 2026-09-06.
+
+**坑**: `VLLM_USE_V1=0` 在新版 vLLM 里是无效变量，必须用带 nvcc 的 CUDA devel 镜像解决 FlashInfer JIT 问题。
 
 ---
 
 ### Task 2 — 对比 HF vs vLLM，单请求 (30 min)
 
-- [ ] 填入对比表：
+- [x] 对比表：
   | 模型 | Backend | tok/s | 倍数 |
   |------|---------|-------|------|
   | Qwen2.5-7B | HF transformers | ~40 | 1x |
-  | Qwen2.5-7B | vLLM | ??? | ???x |
-- [ ] 预期：vLLM 单请求提升不大（1-2x），主要优势在多并发
+  | Qwen2.5-7B | vLLM | ~80 | **2x** |
 
-**Success**: 有一个可以解释的数字，知道为什么单请求提升有限。
+**Success**: ✅ Done 2026-09-06. 单请求 2x 提升，来自 CUDA graph + torch.compile（inductor）。比预期高，通常说的"单请求提升有限"是指没有编译优化的版本。
 
 ---
 
