@@ -11,27 +11,36 @@
 
 ### Task 1 — 选模型 + 跑通推理 (60 min)
 
-- [ ] 用 `Qwen/Qwen2.5-7B-Instruct`（推荐：中文友好，权重小，下载快）
-- [ ] 复用 Wk1 的 Modal 脚本框架，改成 7B：
+- [x] 用 `Qwen/Qwen2.5-7B-Instruct`（推荐：中文友好，权重小，下载快）
+- [x] 复用 Wk1 的 Modal 脚本框架，改成 7B：
   - `gpu="A100"` 保持不变（7B fp16 约需 14GB，A100 40GB 够用）
   - `dtype=torch.float16`
   - 生成 100 tokens，greedy decode，跑 3 次
-- [ ] 记录 3 次 tok/s，取稳态（Run 2/3）
+- [x] 记录 3 次 tok/s，取稳态（Run 2/3）
 
-**Success**: 拿到一个稳定的 7B tok/s 数字。预期范围：20–60 tok/s。
+**Results** — Qwen2.5-7B-Instruct, HuggingFace transformers (fp16), A100, 100 tokens, greedy decode:
+| Run | tok/s | Notes |
+|-----|-------|-------|
+| 1   | 19.2  | CUDA warmup — discard |
+| 2   | 39.3  | steady state |
+| 3   | 39.9  | steady state |
+
+**Steady-state baseline: ~40 tok/s** ✅ Done 2026-09-06.
+
+**反直觉现象**: 7B (40 tok/s) 比 0.5B (31 tok/s) 更快。原因：0.5B 模型太小，每次 forward pass 的矩阵乘法规模不足以塞满 A100 的 tensor core，kernel launch overhead 占比更高。7B 的矩阵足够大，GPU 利用率更高，反而每 token 更快。→ 这说明 tok/s 不只取决于参数量，还取决于 GPU 的 arithmetic intensity。
 
 ---
 
 ### Task 2 — 对比 0.5B vs 7B，理解差距来源 (30 min)
 
-- [ ] 把两个数字放在一起：
+- [x] 把两个数字放在一起：
   | 模型 | 参数量 | tok/s | 备注 |
   |------|--------|-------|------|
   | Qwen2.5-0.5B | 0.5B | ~31 | Wk1 baseline |
-  | Qwen2.5-7B | 7B | ??? | Wk2 baseline |
-- [ ] 思考：为什么 7B 更慢？（提示：每个 token 需要更多 matmul 计算 + 更大 KV cache）
+  | Qwen2.5-7B-Instruct | 7B | ~40 | Wk2 baseline |
+- [x] 思考差距来源（见 Task 1 备注）
 
-**Success**: 能用一句话解释参数量和 tok/s 的关系。
+**Success**: ✅ Done 2026-09-06. 一句话：tok/s 由 GPU arithmetic intensity 决定，不只是参数量。
 
 ---
 

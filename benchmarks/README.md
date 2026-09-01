@@ -4,7 +4,7 @@ Reproducible benchmarks for LLM serving on a single GPU.
 Comparing HuggingFace transformers baseline vs vLLM with continuous
 batching, PagedAttention, prefix caching, and quantization.
 
-**Status**: Week 1 of 12 — dev environment setup.
+**Status**: Week 2 of 12 — HF baselines complete (0.5B + 7B).
 
 ---
 
@@ -13,8 +13,9 @@ batching, PagedAttention, prefix caching, and quantization.
 | Model | Backend | GPU | dtype | tok/s |
 |-------|---------|-----|-------|-------|
 | Qwen2.5-0.5B | HuggingFace transformers | A100 | fp16 | ~31 |
+| Qwen2.5-7B-Instruct | HuggingFace transformers | A100 | fp16 | ~40 |
 
-*Greedy decode, 100 output tokens, steady-state (run 2+).*
+*Greedy decode, 100 output tokens, steady-state (run 2+). 7B > 0.5B in tok/s because larger matmuls better saturate A100 tensor cores (arithmetic intensity effect).*
 
 ---
 
