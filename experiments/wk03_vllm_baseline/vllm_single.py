@@ -3,9 +3,11 @@ import time
 
 app = modal.App("vllm-7b-baseline")
 image = (
-    modal.Image.debian_slim()
+    modal.Image.from_registry(
+        "nvidia/cuda:12.4.0-devel-ubuntu22.04",
+        add_python="3.11",
+    )
     .pip_install("vllm")
-    .env({"VLLM_USE_V1": "0"})  # v1 engine uses multiprocessing that breaks in Modal containers
 )
 
 @app.function(gpu="A100", image=image, timeout=600)
