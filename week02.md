@@ -46,10 +46,10 @@
 
 ### Task 3 — 更新 benchmarks/README.md (20 min)
 
-- [ ] 把 7B 结果加入基准表格
-- [ ] commit + push
+- [x] 把 7B 结果加入基准表格
+- [x] commit + push
 
-**Success**: `benchmarks/README.md` 基准表有两行数据。
+**Success**: `benchmarks/README.md` 基准表有两行数据。✅ Done 2026-09-06.
 
 ---
 
