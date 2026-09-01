@@ -44,11 +44,19 @@
 
 这才是 vLLM 真正发力的地方。
 
-- [ ] HF 方式：串行跑 8 条请求，计算总 throughput (tokens/s)
-- [ ] vLLM 方式：同时发 8 条请求（batch），计算总 throughput
-- [ ] 记录对比
+- [x] HF 方式：串行跑 8 条请求，计算总 throughput (tokens/s)
+- [x] vLLM 方式：同时发 8 条请求（batch），计算总 throughput
+- [x] 记录对比
 
-**Success**: 看到 vLLM 在多并发下的真实优势（预期 3-5x throughput 提升）。
+**Results** (Qwen2.5-7B, A100, 8 requests × 100 tokens):
+| 方式 | tok/s | 耗时 | 倍数 |
+|------|-------|------|------|
+| HF sequential | 41.2 | 19.4s | 1x |
+| vLLM batch | 748.2 | 1.1s | **~18x** |
+
+**Success**: ✅ Done 2026-09-06.
+
+**注意**: Modal 分配了不同 GPU（HF → A100 40GB，vLLM → A100 80GB），约 2x 内存带宽差异。剔除后真实提升约 9x。主因是 vLLM 把 8 条请求的 decode 合并为一个大 batch，GPU 利用率从 ~12% 提升到接近满载。
 
 ---
 

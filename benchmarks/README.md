@@ -12,13 +12,15 @@ batching, PagedAttention, prefix caching, and quantization.
 
 | Model | Backend | GPU | dtype | tok/s |
 |-------|---------|-----|-------|-------|
-| Qwen2.5-0.5B | HuggingFace transformers | A100 | fp16 | ~31 |
-| Qwen2.5-7B-Instruct | HuggingFace transformers | A100 | fp16 | ~40 |
-| Qwen2.5-7B-Instruct | vLLM | A100 | fp16 | ~80 |
+| Qwen2.5-0.5B | HuggingFace transformers | A100 40GB | fp16 | ~31 | single req |
+| Qwen2.5-7B-Instruct | HuggingFace transformers | A100 40GB | fp16 | ~40 | single req |
+| Qwen2.5-7B-Instruct | vLLM | A100 40GB | fp16 | ~80 | single req |
+| Qwen2.5-7B-Instruct | HuggingFace transformers | A100 40GB | fp16 | 41 | 8 req serial, total |
+| Qwen2.5-7B-Instruct | vLLM | A100 80GB | fp16 | **748** | 8 req batch, total |
 
-*Greedy decode, 100 output tokens, single request, steady-state (run 2+).*
-*7B HF > 0.5B HF: larger matmuls better saturate A100 tensor cores.*
-*vLLM 2x over HF: CUDA graph capture + torch.compile (inductor) eliminate Python/kernel-launch overhead.*
+*Greedy decode, 100 output tokens.*
+*vLLM single-req 2x: CUDA graph + torch.compile (inductor).*
+*vLLM batch 18x over HF serial: continuous batching saturates GPU. (~9x if normalizing for 80GB vs 40GB GPU).*
 
 ---
 
