@@ -13,13 +13,13 @@
 
 论文：https://arxiv.org/abs/2309.06180
 
-- [ ] §3 Background: 理解 KV cache 在 attention 计算中的角色
-- [ ] §3.2 Memory Challenges: 搞清楚 internal/external fragmentation 的定义
-- [ ] §4 PagedAttention: 核心算法——block table、physical/logical block 的映射
-- [ ] §4.3 Scheduling and Preemption: 了解抢占机制（recompute vs swap）
-- [ ] 看完后用自己的话写 2-3 句总结，记在本文件底部
+- [x] §3 Background: 理解 KV cache 在 attention 计算中的角色
+- [x] §3.2 Memory Challenges: 搞清楚 internal/external fragmentation 的定义
+- [x] §4 PagedAttention: 核心算法——block table、physical/logical block 的映射
+- [x] §4.3 Scheduling and Preemption: 了解抢占机制（recompute vs swap）
+- [x] 看完后用自己的话写 2-3 句总结，记在本文件底部
 
-**Success**: 能解释 block table 是什么，以及为什么 physical block 不需要连续。
+**Success**: ✅ Done 2026-09-02.
 
 ---
 
@@ -62,9 +62,11 @@
 
 ---
 
-## PagedAttention 3句话总结（读完后填）
+## PagedAttention 3句话总结
 
-> （待填）
+> 1. **问题**：传统 LLM serving 按最大长度预分配 KV Cache，60–80% 显存成为碎片，严重限制并发。
+> 2. **方案**：PagedAttention 用 block table 实现 KV Cache 的非连续分页分配，碎片率降至 <4%，物理 block 按需分配、即时释放。
+> 3. **效果**：配合 continuous batching，同等显存下并发请求数大幅提升，throughput 比同期系统高 1.8–2.2×。
 
 ---
 
