@@ -70,7 +70,7 @@ def run_continuous():
     output_lengths = rng.integers(MIN_TOKENS, MAX_TOKENS + 1, size=N_REQUESTS).tolist()
     arrival_gaps = rng.exponential(AVG_ARRIVAL_INTERVAL, size=N_REQUESTS).tolist()
 
-    engine_args = AsyncEngineArgs(model=MODEL_ID, dtype="float16", disable_log_requests=True)
+    engine_args = AsyncEngineArgs(model=MODEL_ID, dtype="float16")
     engine = AsyncLLMEngine.from_engine_args(engine_args)
 
     results = {}  # request_id -> {ttft, finish_time, n_tokens, start_time}
