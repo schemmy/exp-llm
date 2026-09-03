@@ -14,7 +14,7 @@ Convention: one line per week. Mark ✅ done, 🟡 partial, ❌ skipped. Add a l
 | 2  | 09-06 → 09-12 | HF baseline for 7B model | ✅ | Qwen2.5-7B ~40 tok/s (A100, fp16) — 7B > 0.5B due to arithmetic intensity |
 | 3  | 09-13 → 09-19 | vLLM install + baseline benchmark | ✅ | vLLM single-req ~80 tok/s (2x HF); batch(8) 748 tok/s (~18x HF serial) |
 | 4  | 09-20 → 09-26 | vLLM + PagedAttention papers; batch sweep | ✅ | Linear throughput scaling: batch 32 → 2,408 tok/s, latency barely changes |
-| 5  | 09-27 → 10-03 | Continuous batching experiments | ☐ | |
+| 5  | 09-27 → 10-03 | Continuous batching experiments | ✅ | CB P50 latency 2.4s vs static 6.4s; TTFT 49ms; throughput similar (~710 tok/s) |
 | 6  | 10-04 → 10-10 | Continuous batching cont'd | ☐ | |
 | 7  | 10-11 → 10-17 | Prefix caching toggle | ☐ | |
 | 8  | 10-18 → 10-24 | Speculative decoding toggle | ☐ | |
