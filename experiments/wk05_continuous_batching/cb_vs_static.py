@@ -15,7 +15,7 @@ image = (
         "nvidia/cuda:12.4.0-devel-ubuntu22.04",
         add_python="3.11",
     )
-    .pip_install("vllm", "numpy")
+    .pip_install("vllm")
 )
 
 MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
