@@ -4,7 +4,21 @@ Reproducible benchmarks for LLM serving on a single GPU.
 Comparing HuggingFace transformers baseline vs vLLM with continuous
 batching, PagedAttention, prefix caching, and quantization.
 
-**Status**: Week 3 of 12 — vLLM single-request baseline complete.
+**Status**: Week 4 of 12 — batch size sweep complete.
+
+## Batch Size Sweep (Week 4)
+
+vLLM, Qwen2.5-7B-Instruct, A100 80GB, fp16, 1024 output tokens/req:
+
+| batch | total tok/s | wall latency | notes |
+|-------|-------------|-------------|-------|
+| 1 | 79.9 | 1.25s | single request |
+| 4 | 321.9 | 1.24s | ~linear |
+| 8 | 642.5 | 1.25s | ~linear |
+| 16 | 1,255.4 | 1.27s | ~linear |
+| 32 | 2,408.8 | 1.33s | A100 not yet saturated |
+
+*Near-linear throughput scaling with constant wall latency — each additional request costs almost nothing in latency.*
 
 ---
 

@@ -11,7 +11,7 @@ image = (
 )
 
 MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
-N_TOKENS = 100
+N_TOKENS = 1024
 BATCH_SIZES = [1, 4, 8, 16, 32]
 
 PROMPTS = [
@@ -73,6 +73,7 @@ def run_sweep():
             elapsed = time.perf_counter() - t0
             times.append(elapsed)
 
+        print(outputs[0].outputs[0].text)
         avg_time = sum(times) / len(times)
         total_tokens = sum(len(o.outputs[0].token_ids) for o in outputs)
         tps = total_tokens / avg_time * (bs / len(batch_prompts))  # normalize
