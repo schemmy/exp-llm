@@ -52,17 +52,32 @@ PROMPTS = [
 
 def bench(tp: int):
     """Shared body. Runs inside a container that already has `tp` GPUs attached."""
+    import os
     import subprocess
+
+    # Set before importing vllm so the workers inherit them. Doing this here rather
+    # than via Image.env() keeps the image cache key untouched — adding a layer would
+    # force a full vllm reinstall on every script in this repo.
+    #   spawn: fork breaks once the parent has touched CUDA, which is how TP>1 dies
+    #          during WorkerProc startup
+    #   cumem: NCCL's cuMem allocator needs IPC handles that many container runtimes
+    #          do not grant; disabling it falls back to a path that works in sandboxes
+    os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+    os.environ.setdefault("NCCL_CUMEM_ENABLE", "0")
+
     from vllm import LLM, SamplingParams
+
+    print(f"\n{'='*62}\n  tensor_parallel_size = {tp}\n{'='*62}")
 
     # Interconnect matters more than GPU count: NVLink is ~900 GB/s, PCIe ~64 GB/s.
     # All-reduce latency is what turns TP scaling sub-linear, so record the topology.
-    print(f"\n{'='*62}\n  tensor_parallel_size = {tp}\n{'='*62}")
-    try:
-        print(subprocess.run(["nvidia-smi", "topo", "-m"],
-                             capture_output=True, text=True, timeout=30).stdout)
-    except Exception as e:
-        print(f"(topo unavailable: {e})")
+    for cmd, label in ((["nvidia-smi", "topo", "-m"], "topology"),
+                       (["df", "-h", "/dev/shm"], "/dev/shm")):
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout
+            print(f"--- {label} ---\n{out}")
+        except Exception as e:
+            print(f"({label} unavailable: {e})")
 
     llm = LLM(model=MODEL_ID, dtype="float16", tensor_parallel_size=tp)
     params = SamplingParams(max_tokens=OUTPUT_TOKENS, temperature=0)
@@ -118,9 +133,15 @@ def test_tp8_fails():
 
 @app.local_entrypoint()
 def main():
+    import os
+    only = os.environ.get("TP_ONLY")          # e.g. TP_ONLY=2 to re-run just that leg
+    cases = [(tp1, 1), (tp2, 2), (tp4, 4)]
+    if only:
+        cases = [c for c in cases if str(c[1]) == only]
+
     print("TP sweep on Qwen2.5-7B — runs 1, 2, then 4 GPUs sequentially.\n")
     rows = []
-    for fn, tp in ((tp1, 1), (tp2, 2), (tp4, 4)):
+    for fn, tp in cases:
         try:
             rows.append(fn.remote())
         except Exception as e:
