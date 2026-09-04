@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>推理引擎剖面</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ground:#0E141B;
+    --surface:#161F2A;
+    --surface-2:#1E2936;
+    --line:#2A3846;
+    --line-soft:#213040;
+    --text:#DCE5EE;
+    --dim:#8496A8;
+    --faint:#5D7188;
+
+    /* prefill = compute-bound (hot) · decode = bandwidth-bound (cool).
+       The hue split carries the page's thesis; it is not decoration. */
+    --prefill:#F0883E;
+    --prefill-soft:#5A3A1E;
+    --decode:#4CA6E0;
+    --decode-soft:#1B354A;
+    --idle:#313E4C;
+    --hit:#56D68A;
+    --hit-soft:#1C3E2C;
+    --reject:#E05C5C;
+
+    --sans:"IBM Plex Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --display:"Archivo","IBM Plex Sans","PingFang SC","Hiragino Sans GB",sans-serif;
+    --mono:"IBM Plex Mono","SF Mono",Menlo,monospace;
+  }
+
+  *{box-sizing:border-box}
+
+  html{scroll-behavior:smooth}
+
+  body{
+    margin:0;
+    background:var(--ground);
+    color:var(--text);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .wrap{max-width:1040px;margin:0 auto;padding:0 24px}
+
+  /* ---------- header ---------- */
+
+  header{
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#111A24 0%,var(--ground) 100%);
+    padding:56px 0 40px;
+  }
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--faint);
+    margin:0 0 14px;
+  }
+  h1{
+    font-family:var(--display);
+    font-weight:800;
+    font-size:clamp(32px,5vw,52px);
+    letter-spacing:-.02em;
+    line-height:1.08;
+    margin:0 0 16px;
+    text-wrap:balance;
+  }
+  .lede{
+    max-width:62ch;
+    color:var(--dim);
+    font-size:17px;
+    margin:0;
+  }
+  .lede strong{color:var(--text);font-weight:500}
+
+  /* ---------- act nav ---------- */
+
+  nav{
+    position:sticky;top:0;z-index:20;
+    background:rgba(14,20,27,.92);
+    backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav-inner{display:flex;gap:4px;overflow-x:auto;padding:0 24px;max-width:1040px;margin:0 auto}
+  nav a{
+    flex:none;
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--faint);
+    text-decoration:none;
+    padding:14px 12px;
+    border-bottom:2px solid transparent;
+    white-space:nowrap;
+    transition:color .15s,border-color .15s;
+  }
+  nav a:hover{color:var(--text)}
+  nav a:focus-visible{outline:2px solid var(--decode);outline-offset:-2px;border-radius:3px}
+  nav a b{font-weight:600;color:var(--dim)}
+
+  /* ---------- act shell ---------- */
+
+  .act{padding:64px 0;border-bottom:1px solid var(--line-soft)}
+  .act:last-of-type{border-bottom:0}
+
+  .act-head{display:flex;align-items:baseline;gap:14px;margin-bottom:6px;flex-wrap:wrap}
+  .act-num{
+    font-family:var(--mono);font-size:12px;font-weight:600;
+    color:var(--ground);background:var(--dim);
+    padding:2px 8px;border-radius:3px;letter-spacing:.06em;
+  }
+  .act-wk{font-family:var(--mono);font-size:12px;color:var(--faint)}
+  h2{
+    font-family:var(--display);font-weight:700;
+    font-size:clamp(24px,3.4vw,32px);
+    letter-spacing:-.015em;margin:0;text-wrap:balance;
+  }
+  .act-sub{color:var(--dim);max-width:64ch;margin:12px 0 28px}
+  .act-sub code{
+    font-family:var(--mono);font-size:.9em;
+    background:var(--surface-2);padding:1px 5px;border-radius:3px;color:var(--text);
+  }
+
+  /* ---------- stage / panels ---------- */
+
+  .stage{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:24px;
+    overflow-x:auto;
+  }
+  .stage + .stage{margin-top:16px}
+
+  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:22px}
+  button{
+    font-family:var(--mono);font-size:12px;font-weight:500;
+    color:var(--text);background:var(--surface-2);
+    border:1px solid var(--line);border-radius:5px;
+    padding:7px 14px;cursor:pointer;
+    transition:background .15s,border-color .15s;
+  }
+  button:hover{background:#26333F;border-color:#3A4A5A}
+  button:focus-visible{outline:2px solid var(--decode);outline-offset:2px}
+  button[aria-pressed="true"]{
+    background:var(--decode-soft);border-color:var(--decode);color:#BEE0F7;
+  }
+  .ctl-label{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase}
+
+  /* ---------- legend ---------- */
+
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:18px;padding-top:16px;border-top:1px solid var(--line-soft)}
+  .legend span{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .sw{width:11px;height:11px;border-radius:2px;flex:none}
+
+  /* ---------- readout cards ---------- */
+
+  .readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:16px}
+  .rd{background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:14px 16px}
+  .rd-k{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+  .rd-v{font-family:var(--mono);font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.2}
+  .rd-n{font-size:11px;color:var(--faint);margin-top:4px;font-family:var(--sans)}
+  .rd.good .rd-v{color:var(--hit)}
+  .rd.bad  .rd-v{color:var(--reject)}
+  .rd.warm .rd-v{color:var(--prefill)}
+  .rd.cool .rd-v{color:var(--decode)}
+
+  /* ---------- measured callout ---------- */
+
+  .measured{
+    margin-top:20px;padding:16px 18px;
+    background:var(--surface-2);
+    border-left:2px solid var(--decode);
+    border-radius:0 6px 6px 0;
+  }
+  .measured h4{
+    font-family:var(--mono);font-size:11px;font-weight:600;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--decode);
+    margin:0 0 10px;
+  }
+  .measured p{margin:0;font-size:14px;color:var(--dim)}
+  .measured p + p{margin-top:8px}
+  .measured b{color:var(--text);font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600}
+
+  /* ---------- act 1: prefill vs decode ---------- */
+
+  .strip{display:flex;align-items:flex-end;gap:3px;min-height:64px;margin-bottom:4px}
+  .cell{
+    border-radius:3px;height:44px;flex:none;
+    opacity:.14;transition:opacity .18s;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:10px;color:#0E141B;font-weight:600;
+  }
+  .cell.on{opacity:1}
+  .cell.pf{width:190px;background:var(--prefill)}
+  .cell.dc{width:20px;background:var(--decode)}
+  .axis{font-family:var(--mono);font-size:10px;color:var(--faint);display:flex;gap:3px;margin-top:2px}
+
+  .bandwidth{margin-top:22px}
+  .bw-row{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  .bw-label{font-family:var(--mono);font-size:11px;color:var(--dim);width:112px;flex:none}
+  .bw-track{flex:1;height:10px;background:var(--surface-2);border-radius:5px;overflow:hidden;min-width:180px}
+  .bw-fill{height:100%;width:0;border-radius:5px;transition:width .12s linear}
+  .bw-fill.w{background:var(--prefill)}
+  .bw-fill.c{background:var(--decode)}
+  .bw-pct{font-family:var(--mono);font-size:11px;color:var(--dim);width:48px;text-align:right;font-variant-numeric:tabular-nums}
+
+  /* ---------- act 2: batching lanes ---------- */
+
+  .lanes{display:grid;grid-template-columns:1fr 1fr;gap:20px;min-width:680px}
+  .lane h3{
+    font-family:var(--mono);font-size:12px;font-weight:600;
+    margin:0 0 14px;color:var(--dim);letter-spacing:.04em;
+  }
+  .lane.cb h3{color:var(--hit)}
+  .track{position:relative;height:20px;margin-bottom:5px;background:var(--surface-2);border-radius:3px;overflow:hidden}
+  .seg{position:absolute;top:0;height:100%;border-radius:3px}
+  .seg.wait{background:var(--idle)}
+  .seg.run{background:var(--decode)}
+  .lane.cb .seg.run{background:var(--hit)}
+  .playhead{position:absolute;top:0;bottom:0;width:1px;background:var(--prefill);opacity:.85;pointer-events:none}
+  .lane-wrap{position:relative}
+
+  /* ---------- act 3: memory grids ---------- */
+
+  .mem{display:grid;grid-template-columns:1fr 1fr;gap:24px;min-width:620px}
+  .mem h3{font-family:var(--mono);font-size:12px;font-weight:600;margin:0 0 4px;color:var(--dim)}
+  .mem .note{font-size:12px;color:var(--faint);margin:0 0 14px;min-height:32px}
+  .grid{display:grid;grid-template-columns:repeat(16,1fr);gap:3px}
+  .slot{aspect-ratio:1;border-radius:2px;background:var(--surface-2);transition:background .2s}
+  .slot.res{background:var(--idle)}
+  .slot.s0{background:#4CA6E0}
+  .slot.s1{background:#56D68A}
+  .slot.s2{background:#F0883E}
+  .slot.s3{background:#B98BE0}
+
+  /* ---------- act 4: prefix cache ---------- */
+
+  .reqs{display:flex;flex-direction:column;gap:4px;min-width:560px}
+  .req{display:flex;align-items:center;gap:8px}
+  .req-id{font-family:var(--mono);font-size:10px;color:var(--faint);width:30px;flex:none;text-align:right}
+  .req-bar{display:flex;gap:2px;flex:1;height:16px}
+  .part{border-radius:2px;transition:width .35s ease,background .35s ease}
+  .part.prefix{background:var(--prefill)}
+  .part.cached{background:var(--hit)}
+  .part.suffix{background:var(--prefill);opacity:.55}
+  .part.dec{background:var(--decode);flex:1}
+
+  /* ---------- act 5: speculative ---------- */
+
+  .spec{display:flex;flex-direction:column;gap:20px;min-width:600px}
+  .spec-row{display:flex;align-items:center;gap:10px}
+  .spec-label{font-family:var(--mono);font-size:11px;color:var(--dim);width:120px;flex:none}
+  .toks{display:flex;gap:4px}
+  .tok{
+    width:60px;height:34px;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:11px;
+    border:1px dashed var(--line);color:var(--faint);
+    background:var(--surface-2);
+    transition:all .2s;
+  }
+  .tok.committed{border:1px solid var(--decode);background:var(--decode-soft);color:#BEE0F7}
+  .tok.draft{border:1px dashed var(--faint);color:var(--dim)}
+  .tok.checking{border-color:var(--prefill);color:var(--prefill);background:var(--prefill-soft)}
+  .tok.accept{border:1px solid var(--hit);background:var(--hit-soft);color:#A8ECC4}
+  .tok.reject{border:1px solid var(--reject);background:#3E1E1E;color:#F0A8A8}
+  .tok.dead{opacity:.22}
+
+  /* ---------- closing ---------- */
+
+  .thesis{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:8px;padding:28px;margin-top:8px;
+  }
+  .thesis h3{font-family:var(--display);font-size:20px;margin:0 0 16px;font-weight:700}
+  .thesis table{width:100%;border-collapse:collapse;font-size:14px}
+  .thesis th{
+    text-align:left;font-family:var(--mono);font-size:10px;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
+    font-weight:500;padding:0 12px 10px 0;border-bottom:1px solid var(--line);
+  }
+  .thesis td{padding:11px 12px 11px 0;border-bottom:1px solid var(--line-soft);color:var(--dim);vertical-align:top}
+  .thesis td:first-child{color:var(--text);font-weight:500;white-space:nowrap}
+  .thesis tr:last-child td{border-bottom:0}
+  .tag{
+    font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;
+    white-space:nowrap;font-weight:500;
+  }
+  .tag.pf{background:var(--prefill-soft);color:#F5B584}
+  .tag.dc{background:var(--decode-soft);color:#8FCBEC}
+
+  footer{padding:40px 0 64px;color:var(--faint);font-size:13px}
+  footer a{color:var(--dim)}
+  footer code{font-family:var(--mono);font-size:12px}
+
+  @media (max-width:760px){
+    .lanes,.mem{grid-template-columns:1fr}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    *{transition-duration:.01ms !important;animation-duration:.01ms !important}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <p class="eyebrow">Phase 1 · Weeks 1–14 · Qwen2.5-7B on A100 80GB</p>
+    <h1>推理引擎剖面</h1>
+    <p class="lede">
+      一次 LLM 推理，GPU 的时间到底花在哪里。五个动画，对应你 Wk 3–8 亲手测出的五组数字——
+      每一项优化都在动同一个东西：<strong>prefill 是算力密集，decode 是带宽密集</strong>，
+      而这两者的矛盾是整个推理系统设计的起点。
+    </p>
+  </div>
+</header>
+
+<nav>
+  <div class="nav-inner">
+    <a href="#act1"><b>01</b> Prefill / Decode</a>
+    <a href="#act2"><b>02</b> 连续批处理</a>
+    <a href="#act3"><b>03</b> PagedAttention</a>
+    <a href="#act4"><b>04</b> 前缀缓存</a>
+    <a href="#act5"><b>05</b> 投机解码</a>
+    <a href="#thesis"><b>06</b> 总纲</a>
+  </div>
+</nav>
+
+<main class="wrap">
+
+<!-- ============ ACT 1 ============ -->
+<section class="act" id="act1">
+  <div class="act-head">
+    <span class="act-num">01</span>
+    <h2>两个阶段，两种瓶颈</h2>
+    <span class="act-wk">Wk 3</span>
+  </div>
+  <p class="act-sub">
+    一次请求分两段。<strong style="color:var(--prefill)">Prefill</strong> 把整个 prompt 一次算完——几百个 token 并行进 GPU，算力吃满。
+    <strong style="color:var(--decode)">Decode</strong> 之后每次只出 1 个 token，但每一步都要把 14 GB 权重<b>完整读一遍</b>。
+    算力闲着，带宽跑满。整个 Phase 1 的优化，本质都在处理这个不对称。
+  </p>
+
+  <div class="stage">
+    <div class="controls">
+      <button id="a1-play">▶ 播放</button>
+      <button id="a1-reset">重置</button>
+      <span class="ctl-label" id="a1-phase">待机</span>
+    </div>
+
+    <div class="strip" id="a1-strip"></div>
+    <div class="axis"><span>← 一次 forward pass = 一个格子 →</span></div>
+
+    <div class="bandwidth">
+      <div class="bw-row">
+        <span class="bw-label">算力利用率</span>
+        <span class="bw-track"><span class="bw-fill w" id="a1-flops"></span></span>
+        <span class="bw-pct" id="a1-flops-p">0%</span>
+      </div>
+      <div class="bw-row">
+        <span class="bw-label">显存带宽</span>
+        <span class="bw-track"><span class="bw-fill c" id="a1-bw"></span></span>
+        <span class="bw-pct" id="a1-bw-p">0%</span>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><i class="sw" style="background:var(--prefill)"></i>Prefill — 150 tokens 一次算完</span>
+      <span><i class="sw" style="background:var(--decode)"></i>Decode — 每步 1 token</span>
+    </div>
+  </div>
+
+  <div class="measured">
+    <h4>你的实测</h4>
+    <p>vLLM 单请求 <b>80.6 tok/s</b>，即 TPOT <b>12.4 ms</b>。每 12.4 ms 就要把 14 GB 权重搬一趟——
+      A100 的 HBM 带宽约 2 TB/s，光搬运就要 <b>7 ms</b>。<b>超过一半的时间在等内存，不在算。</b></p>
+    <p>这也解释了 Wk 2 那个反直觉的结果：7B（40 tok/s）比 0.5B（31 tok/s）还快。小模型没把张量核心喂饱，
+      算力和带宽都在空转。</p>
+  </div>
+</section>
+
+<!-- ============ ACT 2 ============ -->
+<section class="act" id="act2">
+  <div class="act-head">
+    <span class="act-num">02</span>
+    <h2>连续批处理买的是等待，不是吞吐</h2>
+    <span class="act-wk">Wk 5–6</span>
+  </div>
+  <p class="act-sub">
+    请求不会同时到达。静态批处理要<b>凑够一批</b>才开工——先到的请求干等。
+    连续批处理让请求随到随进、完事就走。注意看两边的<b>总吞吐几乎一样</b>，差的全在延迟。
+  </p>
+
+  <div class="stage">
+    <div class="controls">
+      <button id="a2-play">▶ 播放</button>
+      <button id="a2-reset">重置</button>
+      <span class="ctl-label" id="a2-clock">t = 0.0s</span>
+    </div>
+
+    <div class="lanes">
+      <div class="lane">
+        <h3>静态批处理 — 等齐了再一起跑</h3>
+        <div class="lane-wrap" id="a2-static"></div>
+      </div>
+      <div class="lane cb">
+        <h3>连续批处理 — 到一个跑一个</h3>
+        <div class="lane-wrap" id="a2-cont"></div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><i class="sw" style="background:var(--idle)"></i>排队等待</span>
+      <span><i class="sw" style="background:var(--decode)"></i>静态执行</span>
+      <span><i class="sw" style="background:var(--hit)"></i>连续执行</span>
+    </div>
+
+    <div class="readout">
+      <div class="rd bad"><div class="rd-k">静态 P50</div><div class="rd-v" id="a2-s50">—</div><div class="rd-n">本演示</div></div>
+      <div class="rd good"><div class="rd-k">连续 P50</div><div class="rd-v" id="a2-c50">—</div><div class="rd-n">本演示</div></div>
+    </div>
+  </div>
+
+  <div class="measured">
+    <h4>你的实测 · 32 请求，泊松到达</h4>
+    <p>P50 延迟 <b>6.36 s → 2.41 s</b>，P99 <b>8.18 s → 3.91 s</b>。
+      而端到端吞吐 <b>717 → 705 tok/s</b>——<b>基本没变</b>。</p>
+    <p>结论要说准：连续批处理的价值<b>不是提高 GPU 利用率</b>，是消除本来就不必要的排队。
+      GPU 做的功一样多，只是不让人白等。</p>
+  </div>
+</section>
+
+<!-- ============ ACT 3 ============ -->
+<section class="act" id="act3">
+  <div class="act-head">
+    <span class="act-num">03</span>
+    <h2>PagedAttention：把显存当虚拟内存用</h2>
+    <span class="act-wk">Wk 4</span>
+  </div>
+  <p class="act-sub">
+    每条请求的 KV cache 要多大？<b>生成完之前不知道</b>。传统做法按最大长度预留连续显存——
+    实际用 40 个 token，却占着 512 个的位置。PagedAttention 改成按 16-token 的块<b>按需分配</b>，
+    物理上可以散落各处，靠块表映射。这就是操作系统分页。
+  </p>
+
+  <div class="stage">
+    <div class="controls">
+      <button id="a3-play">▶ 播放</button>
+      <button id="a3-reset">重置</button>
+      <span class="ctl-label" id="a3-step">4 条请求正在生成</span>
+    </div>
+
+    <div class="mem">
+      <div>
+        <h3>连续预分配</h3>
+        <p class="note">每条请求预留 16 格（按最大可能长度）。用不到的格子<b>锁死在那里</b>，别人也用不了。</p>
+        <div class="grid" id="a3-contig"></div>
+      </div>
+      <div>
+        <h3>分页分配</h3>
+        <p class="note">从共享池按需取块。请求长一格就多拿一块，物理位置无所谓。</p>
+        <div class="grid" id="a3-paged"></div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><i class="sw" style="background:var(--idle)"></i>预留但浪费</span>
+      <span><i class="sw" style="background:#4CA6E0"></i>请求 A</span>
+      <span><i class="sw" style="background:#56D68A"></i>请求 B</span>
+      <span><i class="sw" style="background:#F0883E"></i>请求 C</span>
+      <span><i class="sw" style="background:#B98BE0"></i>请求 D</span>
+    </div>
+
+    <div class="readout">
+      <div class="rd bad"><div class="rd-k">连续 · 剩余可分配</div><div class="rd-v" id="a3-u1">—</div><div class="rd-n">空格子被预留锁死</div></div>
+      <div class="rd good"><div class="rd-k">分页 · 剩余可分配</div><div class="rd-v" id="a3-u2">—</div><div class="rd-n">没用到的格子还能收新请求</div></div>
+    </div>
+  </div>
+
+  <div class="measured">
+    <h4>论文数字 · 你的实测</h4>
+    <p>碎片率从 <b>60–80%</b> 降到 <b>&lt;4%</b>。省下的显存直接变成更大的 batch。</p>
+    <p>你 Wk 4 的 batch sweep 就是这个的直接后果：batch 1 → 32，吞吐 <b>80 → 2,408 tok/s</b> 近乎线性，
+      而墙上延迟只从 <b>1.25 s</b> 动到 <b>1.33 s</b>。<b>每多一条请求几乎不要钱</b>——因为 decode 本来就在等带宽，
+      顺手多算几条是白赚。</p>
+  </div>
+</section>
+
+<!-- ============ ACT 4 ============ -->
+<section class="act" id="act4">
+  <div class="act-head">
+    <span class="act-num">04</span>
+    <h2>前缀缓存：算过的不再算</h2>
+    <span class="act-wk">Wk 7</span>
+  </div>
+  <p class="act-sub">
+    32 条请求带着同一份 500-token 文档（RAG、system prompt、多轮历史都是这个形状）。
+    关掉缓存，这 500 个 token 的 prefill <b>要跑 32 遍</b>。打开，第一条算完存进 KV cache，
+    后面 31 条按块哈希命中，<b>直接跳过</b>。
+  </p>
+
+  <div class="stage">
+    <div class="controls">
+      <span class="ctl-label">Prefix cache</span>
+      <button id="a4-off" aria-pressed="true">关闭</button>
+      <button id="a4-on" aria-pressed="false">开启</button>
+    </div>
+
+    <div class="reqs" id="a4-reqs"></div>
+
+    <div class="legend">
+      <span><i class="sw" style="background:var(--prefill)"></i>共享前缀 prefill（500 tok）</span>
+      <span><i class="sw" style="background:var(--hit)"></i>缓存命中 — 跳过</span>
+      <span><i class="sw" style="background:var(--prefill);opacity:.55"></i>各自的问题（~10 tok）</span>
+      <span><i class="sw" style="background:var(--decode)"></i>Decode</span>
+    </div>
+
+    <div class="readout">
+      <div class="rd warm"><div class="rd-k">TTFT P50</div><div class="rd-v" id="a4-ttft">829 ms</div><div class="rd-n" id="a4-ttft-n">每条都重算前缀</div></div>
+      <div class="rd cool"><div class="rd-k">吞吐</div><div class="rd-v" id="a4-tput">835 tok/s</div><div class="rd-n" id="a4-tput-n">算力耗在重复 prefill</div></div>
+    </div>
+  </div>
+
+  <div class="measured">
+    <h4>你的实测</h4>
+    <p>TTFT P50 <b>829 → 156 ms（5.3x）</b>，吞吐 <b>835 → 1,412 tok/s（1.7x）</b>。</p>
+    <p>吞吐也涨了 1.7x，因为省下的 prefill 算力全部转给了 decode——<b>GPU 不再重复做同一份功</b>。</p>
+    <p>命中是<b>按块哈希</b>的，前缀必须逐 token 相同。所以生产上要做前缀感知路由：同一个用户/会话
+      始终打同一台机器，否则 cache 永远 miss。</p>
+  </div>
+</section>
+
+<!-- ============ ACT 5 ============ -->
+<section class="act" id="act5">
+  <div class="act-head">
+    <span class="act-num">05</span>
+    <h2>投机解码：把 decode 变回 prefill</h2>
+    <span class="act-wk">Wk 8</span>
+  </div>
+  <p class="act-sub">
+    既然 decode 时算力大量空闲，就<b>先猜 5 个 token</b>，让大模型用<b>一次</b> forward pass 并行验证。
+    causal mask 保证每个位置的预测不受后面 token 影响，所以验证结果和逐个解码<b>逐位相同</b>——不是近似。
+    猜中就白赚，猜错就丢弃。
+  </p>
+
+  <div class="stage">
+    <div class="controls">
+      <span class="ctl-label">任务形态</span>
+      <button id="a5-copy" aria-pressed="true">逐字复制（高命中）</button>
+      <button id="a5-novel" aria-pressed="false">自由改写（低命中）</button>
+      <button id="a5-play">▶ 播放一轮</button>
+    </div>
+
+    <div class="spec">
+      <div class="spec-row">
+        <span class="spec-label">已确定</span>
+        <div class="toks" id="a5-ctx"></div>
+      </div>
+      <div class="spec-row">
+        <span class="spec-label">draft 猜测</span>
+        <div class="toks" id="a5-draft"></div>
+      </div>
+      <div class="spec-row">
+        <span class="spec-label">7B 验证结果</span>
+        <div class="toks" id="a5-verify"></div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><i class="sw" style="background:var(--decode)"></i>已提交</span>
+      <span><i class="sw" style="background:var(--prefill)"></i>验证中</span>
+      <span><i class="sw" style="background:var(--hit)"></i>接受</span>
+      <span><i class="sw" style="background:var(--reject)"></i>拒绝 — 之后全部作废</span>
+    </div>
+
+    <div class="readout">
+      <div class="rd good"><div class="rd-k">本轮产出</div><div class="rd-v" id="a5-yield">—</div><div class="rd-n">tokens / 一次 forward</div></div>
+      <div class="rd"><div class="rd-k">命中率</div><div class="rd-v" id="a5-acc">—</div><div class="rd-n">接受数 / 猜测数</div></div>
+    </div>
+  </div>
+
+  <div class="measured">
+    <h4>你的实测 · 引擎不变，只改了 prompt 里一句指令</h4>
+    <p>batch = 1 ｜ 逐字复制 <b>2.78x</b> ｜ 自由改写 <b>1.13x</b></p>
+    <p>batch = 16 ｜ 逐字复制 <b>2.38x</b> ｜ 自由改写 <b>0.85x（净亏）</b></p>
+    <p>baseline 在两种任务上都是 <b>80.7 tok/s</b>（三位有效数字完全相同），
+      所以提速<b>全部</b>来自被接受的猜测，跟任务难度无关。</p>
+    <p><b>batch size 是放大器，不是决定因素。</b>高并发下 GPU 已经 compute-bound，
+      多验证的 6 倍算力不再免费——命中率低就净亏 15%，命中率高照样赚 2.38x。</p>
+  </div>
+</section>
+
+<!-- ============ THESIS ============ -->
+<section class="act" id="thesis">
+  <div class="act-head">
+    <span class="act-num">06</span>
+    <h2>一张表看完 Phase 1</h2>
+  </div>
+  <p class="act-sub">
+    每一项优化，都可以问同一个问题：<b>它在动 prefill 还是 decode？省的是算力、带宽，还是显存？</b>
+  </p>
+
+  <div class="thesis">
+    <table>
+      <thead>
+        <tr><th>优化</th><th>动的阶段</th><th>省下什么</th><th>你的实测</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>连续批处理</td>
+          <td><span class="tag dc">decode</span></td>
+          <td>排队等待（不是算力）</td>
+          <td>P50 6.36 → 2.41 s</td>
+        </tr>
+        <tr>
+          <td>PagedAttention</td>
+          <td><span class="tag dc">decode</span></td>
+          <td>显存碎片 → 换更大 batch</td>
+          <td>batch 32 → 2,408 tok/s</td>
+        </tr>
+        <tr>
+          <td>前缀缓存</td>
+          <td><span class="tag pf">prefill</span></td>
+          <td>重复的前缀计算</td>
+          <td>TTFT 829 → 156 ms</td>
+        </tr>
+        <tr>
+          <td>投机解码</td>
+          <td><span class="tag dc">decode</span></td>
+          <td>把空闲算力换成 token</td>
+          <td>2.78x / 0.85x（看命中率）</td>
+        </tr>
+        <tr>
+          <td>张量并行 <span style="color:var(--faint);font-family:var(--mono);font-size:11px">Wk 9</span></td>
+          <td><span class="tag pf">prefill</span> <span class="tag dc">decode</span></td>
+          <td>单卡装不下 → 切开，代价是通信</td>
+          <td>待测</td>
+        </tr>
+        <tr>
+          <td>MoE / 专家并行 <span style="color:var(--faint);font-family:var(--mono);font-size:11px">Wk 10</span></td>
+          <td><span class="tag dc">decode</span></td>
+          <td>每 token 只读激活的权重</td>
+          <td>待测</td>
+        </tr>
+        <tr>
+          <td>量化 <span style="color:var(--faint);font-family:var(--mono);font-size:11px">Wk 11–12</span></td>
+          <td><span class="tag dc">decode</span></td>
+          <td>权重体积 → 直接砍带宽开销</td>
+          <td>待测</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+
+<footer class="wrap">
+  <p>
+    数据来自 <code>benchmarks/README.md</code> · Qwen2.5-7B-Instruct，A100 80GB，fp16，vLLM ·
+    全部实验可复现：<code>modal run experiments/wkXX_*/*.py</code>
+  </p>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const $ = id => document.getElementById(id);
+
+  /* ---------------- ACT 1 : prefill vs decode ---------------- */
+  (function act1(){
+    const strip = $("a1-strip"), flops = $("a1-flops"), bw = $("a1-bw");
+    const fp = $("a1-flops-p"), bp = $("a1-bw-p"), phase = $("a1-phase");
+    const N_DECODE = 22;
+    let timer = null;
+
+    function build(){
+      strip.innerHTML = "";
+      const pf = document.createElement("div");
+      pf.className = "cell pf";
+      pf.textContent = "prefill · 150 tok";
+      strip.appendChild(pf);
+      for(let i=0;i<N_DECODE;i++){
+        const d = document.createElement("div");
+        d.className = "cell dc";
+        strip.appendChild(d);
+      }
+    }
+
+    function set(f,b){
+      flops.style.width = f+"%"; fp.textContent = f+"%";
+      bw.style.width = b+"%";    bp.textContent = b+"%";
+    }
+
+    function reset(){
+      clearInterval(timer); timer=null;
+      build(); set(0,0); phase.textContent="待机";
+    }
+
+    function play(){
+      clearInterval(timer);
+      build(); set(0,0);
+      const cells = strip.querySelectorAll(".cell");
+      let i = 0;
+      const step = () => {
+        if(i >= cells.length){ clearInterval(timer); timer=null; phase.textContent="生成完毕"; return; }
+        cells[i].classList.add("on");
+        if(i === 0){
+          // prefill: many tokens in one pass — tensor cores saturated
+          set(94, 38);
+          phase.textContent = "PREFILL — 算力吃满，一次算完 150 个 token";
+        } else {
+          // decode: 1 token per pass — weights re-read every step
+          set(5, 97);
+          phase.textContent = "DECODE — 每步只出 1 token，权重却要整读一遍";
+        }
+        i++;
+      };
+      step();
+      timer = setInterval(step, reduced ? 1 : 260);
+    }
+
+    // Land on the finished state so the diagram reads without pressing anything;
+    // play/reset are for watching it happen, not for making it appear.
+    function settled(){
+      build();
+      strip.querySelectorAll(".cell").forEach(c => c.classList.add("on"));
+      set(5, 97);
+      phase.textContent = "DECODE 稳态 — 算力闲置，带宽跑满";
+    }
+
+    $("a1-play").addEventListener("click", play);
+    $("a1-reset").addEventListener("click", settled);
+    $("a1-reset").textContent = "回到终态";
+    settled();
+  })();
+
+  /* ---------------- ACT 2 : static vs continuous ---------------- */
+  (function act2(){
+    const arrivals  = [0, .3, .5, .9, 1.4, 1.6, 2.1, 2.6];
+    const durations = [1.2, 1.6, 1.0, 1.8, 1.3, 1.5, 1.1, 1.7];
+    const collect   = Math.max(...arrivals);          // static waits for the last arrival
+    const batchTime = Math.max(...durations);         // then one batch, paced by its slowest member
+    const T_END     = collect + batchTime;            // shared time axis for both lanes
+    const sEl = $("a2-static"), cEl = $("a2-cont"), clock = $("a2-clock");
+    let raf = null, t0 = null;
+
+    const pct = x => (x / T_END * 100) + "%";
+
+    function build(){
+      sEl.innerHTML = ""; cEl.innerHTML = "";
+      arrivals.forEach((a,i) => {
+        // static: wait from arrival until the whole batch starts, then run to the common finish
+        sEl.appendChild(track([
+          {cls:"wait", from:a, to:collect},
+          {cls:"run",  from:collect, to:T_END}
+        ]));
+        // continuous: start on arrival, leave when done
+        cEl.appendChild(track([
+          {cls:"run", from:a, to:a + durations[i]}
+        ]));
+      });
+      [sEl,cEl].forEach(el => {
+        const ph = document.createElement("div");
+        ph.className = "playhead"; ph.style.left = "0%"; ph.dataset.head = "1";
+        el.appendChild(ph);
+      });
+    }
+
+    function track(segs){
+      const t = document.createElement("div");
+      t.className = "track";
+      segs.forEach(s => {
+        const d = document.createElement("div");
+        d.className = "seg " + s.cls;
+        d.style.left  = pct(s.from);
+        d.style.width = pct(s.to - s.from);
+        d.style.opacity = "0";
+        t.appendChild(d);
+      });
+      return t;
+    }
+
+    function stats(){
+      const sLat = arrivals.map(a => T_END - a).sort((x,y)=>x-y);
+      const cLat = durations.slice().sort((x,y)=>x-y);
+      const p50 = a => a[Math.floor(a.length/2)];
+      $("a2-s50").textContent = p50(sLat).toFixed(2) + "s";
+      $("a2-c50").textContent = p50(cLat).toFixed(2) + "s";
+    }
+
+    function reset(){
+      if(raf) cancelAnimationFrame(raf);
+      raf = null; t0 = null;
+      build();
+      clock.textContent = "t = 0.0s";
+      $("a2-s50").textContent = "—"; $("a2-c50").textContent = "—";
+    }
+
+    function play(){
+      if(raf) cancelAnimationFrame(raf);
+      build();
+      if(reduced){
+        document.querySelectorAll("#a2-static .seg,#a2-cont .seg").forEach(s=>s.style.opacity="1");
+        stats(); clock.textContent = "t = " + T_END.toFixed(1) + "s"; return;
+      }
+      t0 = performance.now();
+      const SPEED = 1400; // ms of wall clock per simulated second
+      const tick = now => {
+        const t = (now - t0) / SPEED;
+        clock.textContent = "t = " + Math.min(t, T_END).toFixed(1) + "s";
+        document.querySelectorAll("#a2-static .track,#a2-cont .track").forEach(tr=>{
+          tr.querySelectorAll(".seg").forEach(seg=>{
+            const from = parseFloat(seg.style.left) / 100 * T_END;
+            seg.style.opacity = t >= from ? "1" : "0";
+          });
+        });
+        document.querySelectorAll('[data-head]').forEach(h=>{
+          h.style.left = Math.min(t / T_END * 100, 100) + "%";
+        });
+        if(t < T_END){ raf = requestAnimationFrame(tick); }
+        else { raf = null; stats(); }
+      };
+      raf = requestAnimationFrame(tick);
+    }
+
+    function settled(){
+      if(raf) cancelAnimationFrame(raf);
+      raf = null;
+      build();
+      document.querySelectorAll("#a2-static .seg,#a2-cont .seg").forEach(s => s.style.opacity = "1");
+      document.querySelectorAll("[data-head]").forEach(h => h.style.left = "100%");
+      clock.textContent = "t = " + T_END.toFixed(1) + "s";
+      stats();
+    }
+
+    $("a2-play").addEventListener("click", play);
+    $("a2-reset").addEventListener("click", settled);
+    $("a2-reset").textContent = "回到终态";
+    settled();
+  })();
+
+  /* ---------------- ACT 3 : paged vs contiguous ---------------- */
+  (function act3(){
+    const SLOTS = 64, RESERVE = 16, NSEQ = 4;
+    const finalLen = [11, 5, 14, 7];   // how long each sequence actually grows
+    const cEl = $("a3-contig"), pEl = $("a3-paged"), stepEl = $("a3-step");
+    let timer = null;
+
+    function build(){
+      cEl.innerHTML = ""; pEl.innerHTML = "";
+      for(let i=0;i<SLOTS;i++){
+        const a = document.createElement("div"); a.className = "slot";
+        // contiguous: the full reservation is locked from the start, used or not
+        if(i < NSEQ*RESERVE) a.className = "slot res";
+        cEl.appendChild(a);
+        const b = document.createElement("div"); b.className = "slot";
+        pEl.appendChild(b);
+      }
+    }
+
+    function render(len){
+      const cs = cEl.children, ps = pEl.children;
+      // contiguous: sequence i owns [i*RESERVE, (i+1)*RESERVE)
+      for(let s=0;s<NSEQ;s++){
+        for(let k=0;k<RESERVE;k++){
+          cs[s*RESERVE+k].className = "slot " + (k < len[s] ? "s"+s : "res");
+        }
+      }
+      // paged: blocks handed out from a shared pool, interleaved as requests grow
+      for(let i=0;i<SLOTS;i++) ps[i].className = "slot";
+      let cursor = 0;
+      const maxLen = Math.max(...len);
+      for(let k=0;k<maxLen;k++){
+        for(let s=0;s<NSEQ;s++){
+          if(k < len[s]) ps[cursor++].className = "slot s"+s;
+        }
+      }
+      const used = len.reduce((a,b)=>a+b,0);
+      // The honest comparison is not "utilization" but what is left for a 5th request:
+      // contiguous locks the whole reservation whether used or not; paging only takes what it needs.
+      $("a3-u1").textContent = (SLOTS - NSEQ*RESERVE) + " 格";
+      $("a3-u2").textContent = (SLOTS - used) + " 格";
+      return used;
+    }
+
+    function reset(){
+      clearInterval(timer); timer=null;
+      build();
+      $("a3-u1").textContent="—"; $("a3-u2").textContent="—";
+      stepEl.textContent = "4 条请求正在生成";
+    }
+
+    function play(){
+      clearInterval(timer);
+      build();
+      const len = [0,0,0,0];
+      const target = finalLen.slice();
+      const grow = () => {
+        let moved = false;
+        for(let s=0;s<NSEQ;s++){
+          if(len[s] < target[s]){ len[s]++; moved = true; }
+        }
+        const used = render(len);
+        stepEl.textContent = "已生成 " + used + " 个 token";
+        if(!moved){
+          clearInterval(timer); timer=null;
+          stepEl.textContent = "生成完毕 — 左边 " + (NSEQ*RESERVE-used) + " 格被锁死，右边全部可再分配";
+        }
+      };
+      grow();
+      timer = setInterval(grow, reduced ? 1 : 420);
+    }
+
+    function settled(){
+      clearInterval(timer); timer = null;
+      build();
+      const used = render(finalLen);
+      stepEl.textContent = "生成完毕 — 左边 " + (NSEQ*RESERVE - used) + " 格被锁死，右边全部可再分配";
+    }
+
+    $("a3-play").addEventListener("click", play);
+    $("a3-reset").addEventListener("click", settled);
+    $("a3-reset").textContent = "回到终态";
+    settled();
+  })();
+
+  /* ---------------- ACT 4 : prefix caching ---------------- */
+  (function act4(){
+    const ROWS = 12;
+    const el = $("a4-reqs");
+    let on = false;
+
+    function build(){
+      el.innerHTML = "";
+      for(let i=0;i<ROWS;i++){
+        const r = document.createElement("div"); r.className = "req";
+        const id = document.createElement("span"); id.className = "req-id";
+        id.textContent = "#" + i;
+        const bar = document.createElement("div"); bar.className = "req-bar";
+        const pre = document.createElement("div"); pre.className = "part prefix";
+        const suf = document.createElement("div"); suf.className = "part suffix";
+        const dec = document.createElement("div"); dec.className = "part dec";
+        bar.append(pre, suf, dec);
+        r.append(id, bar);
+        el.appendChild(r);
+      }
+      paint();
+    }
+
+    function paint(){
+      [...el.children].forEach((row,i)=>{
+        const [pre,suf] = row.querySelectorAll(".part");
+        // row 0 always pays full prefill: it is the cache *miss* that fills the cache
+        const cached = on && i > 0;
+        pre.className = "part " + (cached ? "cached" : "prefix");
+        pre.style.width = cached ? "26px" : "300px";
+        suf.style.width = "24px";
+      });
+      $("a4-ttft").textContent   = on ? "156 ms" : "829 ms";
+      $("a4-ttft-n").textContent = on ? "#0 之后全部命中" : "每条都重算前缀";
+      $("a4-tput").textContent   = on ? "1,412 tok/s" : "835 tok/s";
+      $("a4-tput-n").textContent = on ? "算力转给 decode" : "算力耗在重复 prefill";
+      $("a4-off").setAttribute("aria-pressed", String(!on));
+      $("a4-on").setAttribute("aria-pressed", String(on));
+    }
+
+    $("a4-off").addEventListener("click", ()=>{ on=false; paint(); });
+    $("a4-on").addEventListener("click",  ()=>{ on=true;  paint(); });
+    build();
+  })();
+
+  /* ---------------- ACT 5 : speculative decoding ---------------- */
+  (function act5(){
+    const K = 5;
+    const SCEN = {
+      copy:  { ctx:["the","KV"],      draft:["cache","into","fixed","-size","blocks"], accept:5,
+               note:"原文里有一模一样的 n-gram，猜测几乎全中" },
+      novel: { ctx:["这","段"],        draft:["文字","主要","讲的","是","一"],          accept:1,
+               note:"模型在重新组织语言，n-gram 查不到" }
+    };
+    let mode = "copy", timer = null, runId = 0;
+
+    const ctxEl = $("a5-ctx"), dEl = $("a5-draft"), vEl = $("a5-verify");
+
+    function tok(text, cls){
+      const d = document.createElement("div");
+      d.className = "tok " + cls;
+      d.textContent = text;
+      return d;
+    }
+
+    function build(){
+      const s = SCEN[mode];
+      runId++;                       // invalidate anything still in flight from a previous run
+      clearInterval(timer); timer = null;
+      ctxEl.innerHTML = ""; dEl.innerHTML = ""; vEl.innerHTML = "";
+      s.ctx.forEach(t => ctxEl.appendChild(tok(t, "committed")));
+      s.draft.forEach(t => dEl.appendChild(tok(t, "draft")));
+      s.draft.forEach(t => vEl.appendChild(tok("·", "")));
+      $("a5-yield").textContent = "—";
+      $("a5-acc").textContent = "—";
+      $("a5-copy").setAttribute("aria-pressed", String(mode==="copy"));
+      $("a5-novel").setAttribute("aria-pressed", String(mode==="novel"));
+    }
+
+    function finish(s){
+      clearInterval(timer); timer = null;
+      // k accepted proposals yield k+1 tokens: the last verified position is a free bonus
+      $("a5-yield").textContent = (s.accept + 1) + " tok";
+      $("a5-acc").textContent = Math.round(s.accept / K * 100) + "%";
+    }
+
+    function play(){
+      clearInterval(timer);
+      build();
+      const s = SCEN[mode];
+      const run = runId;            // a rebuild bumps runId and orphans any pending timeout
+      const vs = vEl.children, ds = dEl.children;
+      let i = 0;
+      const step = () => {
+        if(run !== runId){ clearInterval(timer); timer = null; return; }
+        if(i > 0 && vs[i-1]) vs[i-1].classList.remove("checking");
+        if(i >= K){ finish(s); return; }
+
+        const idx = i;              // capture: `i` has moved on by the time the timeout fires
+        const hit = idx < s.accept;
+        vs[idx].className = "tok checking";
+        vs[idx].textContent = s.draft[idx];
+
+        setTimeout(() => {
+          if(run !== runId || !vs[idx]) return;
+          vs[idx].className = "tok " + (hit ? "accept" : "reject");
+          if(!hit){
+            // everything after the first rejection is discarded, however good it looked
+            for(let j=idx;   j<K; j++) if(ds[j]) ds[j].classList.add("dead");
+            for(let j=idx+1; j<K; j++) if(vs[j]){ vs[j].className = "tok dead"; vs[j].textContent = "✕"; }
+            finish(s);
+          }
+        }, reduced ? 1 : 220);
+        i++;
+      };
+      step();
+      timer = setInterval(step, reduced ? 2 : 480);
+    }
+
+    $("a5-copy").addEventListener("click", ()=>{ mode="copy"; build(); });
+    $("a5-novel").addEventListener("click", ()=>{ mode="novel"; build(); });
+    $("a5-play").addEventListener("click", play);
+    build();
+  })();
+})();
+</script>
+</body>
+</html>
