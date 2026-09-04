@@ -18,7 +18,7 @@ Convention: one line per week. Mark ✅ done, 🟡 partial, ❌ skipped. Add a l
 | 6  | 10-04 → 10-10 | Continuous batching cont'd | ✅ | Load pressure sweep：A100 未饱和，TTFT 33→39ms (5→50 req/s)，throughput 763→3273 tok/s；短 prompt 下 prefill 太快，需长 prompt 才能看到 TTFT 崩溃 |
 | 7  | 10-11 → 10-17 | Prefix caching toggle | ✅ | TTFT P50: 829ms→156ms (5.3x)；throughput 835→1412 tok/s；~500-token shared RAG prefix，32 concurrent requests |
 | 8  | 10-18 → 10-24 | Speculative decoding toggle | ✅ | acceptance rate 是主变量：copy 任务 2.78x (b=1) / 2.38x (b=16)，novel 任务 1.13x / **0.85x 净亏**。draft model 在 vLLM V1 不受支持 |
-| 9  | 10-25 → 10-31 | Tensor parallelism: TP=1 vs 2 vs 4 | ☐ | |
+| 9  | 10-25 → 10-31 | Tensor parallelism: TP=1 vs 2 vs 4 | 🟡 | 脚本就绪 `wk09_tensor_parallel/tp_sweep.py`；待跑 |
 | 10 | 11-01 → 11-07 | MoE inference + expert parallelism | ☐ | |
 | 11 | 11-08 → 11-14 | INT8 / FP8 quantization | ☐ | |
 | 12 | 11-15 → 11-21 | INT4 quantization + tradeoff table | ☐ | |
