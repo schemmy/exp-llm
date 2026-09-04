@@ -4,7 +4,78 @@ Reproducible benchmarks for LLM serving on a single GPU.
 Comparing HuggingFace transformers baseline vs vLLM with continuous
 batching, PagedAttention, prefix caching, and quantization.
 
-**Status**: Week 4 of 12 — batch size sweep complete.
+**Status**: Week 8 of 12 — speculative decoding complete.
+
+## Speculative Decoding (Week 8)
+
+vLLM n-gram speculative decoding (`num_speculative_tokens=5`), Qwen2.5-7B-Instruct, A100 80GB, fp16.
+
+Two task shapes over the *same* passage — only the instruction text differs, engine config identical:
+
+| Task | batch | baseline | n-gram | speedup |
+|------|-------|----------|--------|---------|
+| novel (rewrite in own words) | 1 | 80.7 tok/s | 91.1 tok/s | 1.13x |
+| **copy** (reproduce verbatim) | 1 | 80.7 tok/s | **224.7 tok/s** | **2.78x** |
+| novel | 16 | 923.7 tok/s | 789.0 tok/s | **0.85x** |
+| **copy** | 16 | 1,067.2 tok/s | **2,545.2 tok/s** | **2.38x** |
+
+*Speculative decoding's payoff is a function of acceptance rate, not of the engine.
+Baseline decode speed is identical across both tasks at batch=1 (80.7 tok/s), so the
+entire copy-task speedup comes from accepted speculations.*
+
+*Batch size is an amplifier, not the deciding factor: at batch=16 the GPU is
+compute-bound, so rejected tokens cost real FLOPs — low acceptance turns into a
+15% net loss, while high acceptance still returns 2.38x.*
+
+*Generic draft-model speculation is not supported by the vLLM V1 engine
+(n-gram / Medusa / EAGLE / MTP only).*
+
+---
+
+## Prefix Caching (Week 7)
+
+32 concurrent requests sharing a ~500-token prefix, Qwen2.5-7B-Instruct, A100 80GB, fp16:
+
+| | TTFT P50 | TTFT P99 | Latency P50 | Throughput |
+|---|---|---|---|---|
+| cache OFF | 829 ms | 1,403 ms | 2.27 s | 835 tok/s |
+| cache ON | **156 ms** | **346 ms** | **1.10 s** | **1,412 tok/s** |
+
+*5.3x TTFT reduction. Cached requests skip prefill for the shared prefix entirely;
+throughput rises because the reclaimed compute goes to decode.*
+
+---
+
+## Load Pressure (Week 6)
+
+Arrival-rate sweep, fixed 200 output tokens/req, A100 80GB:
+
+| Load | TTFT P50 | TTFT P99 | Latency P99 | Throughput |
+|------|----------|----------|-------------|------------|
+| ~5 req/s | 33 ms | 43 ms | 2.46 s | 763 tok/s |
+| ~20 req/s | 37 ms | 49 ms | 2.56 s | 1,585 tok/s |
+| ~20 req/s (64 req) | 38 ms | 50 ms | 2.65 s | 2,291 tok/s |
+| ~50 req/s | 39 ms | 50 ms | 2.74 s | 3,273 tok/s |
+
+*The A100 never saturates here: TTFT moves only 33→39 ms across a 10x arrival-rate
+increase. Short prompts make prefill trivial — saturating this GPU requires long
+prompts, where prefill cost grows with sequence length.*
+
+---
+
+## Continuous vs Static Batching (Week 5)
+
+32 requests, Poisson arrivals (mean 0.2 s), 50-300 output tokens:
+
+| | P50 latency | P99 latency | TTFT P50 | End-to-end throughput |
+|---|---|---|---|---|
+| static (wait, then batch) | 6.36 s | 8.18 s | — | 717 tok/s |
+| continuous | **2.41 s** | **3.91 s** | 49 ms | 705 tok/s |
+
+*Throughput is a wash; latency is not. Continuous batching's value here is
+eliminating queueing delay, not raising GPU utilization.*
+
+---
 
 ## Batch Size Sweep (Week 4)
 

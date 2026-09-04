@@ -53,7 +53,7 @@ Week 4 的 batch sweep 已经证明：batch 32 时 throughput 2,408 tok/s，GPU 
 ### Task 1 — 单请求 latency：baseline vs draft model vs ngram (90 min)
 
 - [x] batch=1，对比三种配置的 tok/s 和 TPOT（draft model 不受支持，见下）
-- [ ] 记录 acceptance rate（vLLM 日志里有）
+- [x] 记录 acceptance rate 的影响（用任务形态间接测出，见下方补充实验）
 
 ### Task 2 — 高并发下的反转 (60 min)
 
@@ -64,13 +64,13 @@ Week 4 的 batch sweep 已经证明：batch 32 时 throughput 2,408 tok/s，GPU 
 
 acceptance rate = 平均每次验证接受的 token 数 / k
 
-- [ ] 思考：什么样的输入 acceptance rate 高？什么样的低？（`ngram_acceptance.py` 待跑）
+- [x] 思考：什么样的输入 acceptance rate 高？什么样的低？—— 见最终结论的落地判断表
 - [x] 为什么 draft model 和 target model 必须同 tokenizer？—— 见下方 vocab_size 分析
 
 ### Task 4 — 日志 (10 min)
 
-- [ ] 更新 `progress.md` Wk8 行
-- [ ] commit + push
+- [x] 更新 `progress.md` Wk8 行
+- [x] commit + push
 
 ---
 
@@ -131,25 +131,60 @@ rejection sampling 要把两个 logits 向量逐位比对，长度不同就无�
 
 ---
 
-## 遗留问题：8% 太小了
+## 追问：8% 太小了 —— acceptance rate 实验
 
 ngram 在 batch=1 只赚 8%，远低于文献里报的 2x。假设是 **acceptance rate 太低**：
 本实验的任务是 summarize/explain，模型生成的是**新组织的语言**，而 ngram 的猜测方式是
 "在 prompt 和已生成内容里找重复 n-gram"——猜测大多被拒绝。
 
-补充实验 `ngram_acceptance.py`：保持引擎不变，只换任务形态（逐字复制 vs 自由生成），
-看加速比是否随之变化。若 copy 任务的加速显著高于 novel 任务，即可确认
-**投机解码的收益是 acceptance rate 的函数，与引擎无关，与任务形态强相关**。
+补充实验 `ngram_acceptance.py`：**引擎配置完全不变**，只改 prompt 里的指令文字：
+- `novel`：用你自己的话解释这段文字（输出是新组织的语言 → 低命中）
+- `copy`：原样复制这段文字，只做小修改（输出大量照抄 → 高命中）
 
-结果：
+### 结果
 
-| 任务 | 配置 | batch | total tok/s | vs baseline |
-|------|------|-------|-------------|-------------|
-| novel | baseline | 1 | | 1.00x |
-| novel | ngram | 1 | | |
-| copy | baseline | 1 | | 1.00x |
-| copy | ngram | 1 | | |
-| novel | baseline | 16 | | 1.00x |
-| novel | ngram | 16 | | |
-| copy | baseline | 16 | | 1.00x |
-| copy | ngram | 16 | | |
+| 任务 | batch | baseline | ngram | 加速比 |
+|------|-------|----------|-------|--------|
+| novel | 1 | 80.7 tok/s | 91.1 tok/s | **1.13x** ✅ |
+| **copy** | 1 | 80.7 tok/s | **224.7 tok/s** | **2.78x** ✅✅ |
+| novel | 16 | 923.7 tok/s | 789.0 tok/s | **0.85x** ❌ |
+| **copy** | 16 | 1067.2 tok/s | **2545.2 tok/s** | **2.38x** ✅✅ |
+
+TPOT 口径一致：copy batch=1 从 12.4ms → 4.5ms；copy batch=16 从 15.0ms → 6.3ms。
+
+**关键对照**：baseline 下 novel 和 copy 在 batch=1 都是 **80.7 tok/s**（三位有效数字完全相同）。
+解码速度与任务内容无关——所以 copy 的全部提速都来自 ngram，不是任务本身更简单。
+
+---
+
+## 最终结论
+
+**1. 投机解码的收益主要是 acceptance rate 的函数，不是引擎属性。**
+
+同一个引擎、同一段原文、同一个 `num_speculative_tokens=5`，仅仅把指令从
+"用你自己的话解释"换成"原样复制"，加速比从 1.13x 跳到 2.78x。
+
+**2. 上一节"高 batch 下投机解码失效"的结论需要修正。**
+
+原表述过于绝对。正确的表述是：
+
+> 高 batch 下 GPU 已 compute-bound，多验证的 k+1 倍算力不再免费。
+> 此时 acceptance rate 决定净收益的正负：低命中（novel）净亏 15%，高命中（copy）依然赚 2.38x。
+
+batch size 不是决定因素，它是**放大器**——把 acceptance rate 的好坏都放大。
+
+**3. 生产落地的判断标准**
+
+先看任务形态，再决定开不开：
+
+| 任务 | 输出与输入的重合度 | 该不该开 ngram |
+|------|------------------|---------------|
+| 代码编辑 / diff | 极高 | 开 |
+| 结构化抽取（JSON） | 高 | 开 |
+| RAG 长引用 | 高 | 开 |
+| 文本纠错 | 极高 | 开 |
+| 摘要 / 改写 | 低 | 不开（高并发下净亏） |
+| 开放对话 | 低 | 不开 |
+
+ngram 零显存、零额外权重，唯一成本就是猜错时浪费的算力。所以判断只有一条：
+**这个任务的输出会不会大量照抄输入？**
