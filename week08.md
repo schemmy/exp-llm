@@ -52,20 +52,20 @@ Week 4 的 batch sweep 已经证明：batch 32 时 throughput 2,408 tok/s，GPU 
 
 ### Task 1 — 单请求 latency：baseline vs draft model vs ngram (90 min)
 
-- [ ] batch=1，对比三种配置的 tok/s 和 TPOT
+- [x] batch=1，对比三种配置的 tok/s 和 TPOT（draft model 不受支持，见下）
 - [ ] 记录 acceptance rate（vLLM 日志里有）
 
 ### Task 2 — 高并发下的反转 (60 min)
 
-- [ ] batch=16，对比 baseline vs draft model
-- [ ] 验证"高 batch 下投机解码收益消失甚至变负"
+- [x] batch=16，对比 baseline vs ngram
+- [x] 验证"高 batch 下投机解码收益消失甚至变负" —— 确认，0.89x
 
 ### Task 3 — 理解 acceptance rate (30 min)
 
 acceptance rate = 平均每次验证接受的 token 数 / k
 
-- [ ] 思考：什么样的输入 acceptance rate 高？什么样的低？
-- [ ] 为什么 draft model 和 target model 必须同 tokenizer？
+- [ ] 思考：什么样的输入 acceptance rate 高？什么样的低？（`ngram_acceptance.py` 待跑）
+- [x] 为什么 draft model 和 target model 必须同 tokenizer？—— 见下方 vocab_size 分析
 
 ### Task 4 — 日志 (10 min)
 
@@ -82,19 +82,74 @@ acceptance rate = 平均每次验证接受的 token 数 / k
 
 ---
 
-## 结果（跑完后填）
+## 结果
 
-### Batch = 1（延迟敏感场景）
+任务：~150 token 文档 + summarize/explain 类问题，输出 256 tokens，A100 fp16。
 
-| 配置 | tok/s | TPOT | 加速比 |
-|------|-------|------|--------|
-| baseline | | | 1.0x |
-| draft model (0.5B, k=5) | | | |
-| ngram (k=5) | | | |
+| 配置 | batch | total tok/s | per-req tok/s | TPOT | vs baseline |
+|------|-------|-------------|---------------|------|-------------|
+| baseline | 1 | 80.6 | 80.6 | 12.4ms | 1.00x |
+| ngram (k=5) | 1 | 87.4 | 87.4 | 11.4ms | **1.08x** ✅ |
+| baseline | 16 | 784.3 | 49.0 | 20.4ms | 1.00x |
+| ngram (k=5) | 16 | 695.4 | 43.5 | 23.0ms | **0.89x** ❌ |
 
-### Batch = 16（吞吐敏感场景）
+**反转出现了**：同一个开关，batch=1 赚 8%，batch=16 亏 11%。
 
-| 配置 | total tok/s | 加速比 |
-|------|-------------|--------|
-| baseline | | 1.0x |
-| draft model (0.5B, k=5) | | |
+原因和 Week 4 的 batch sweep 直接对得上：batch=16 时 GPU 已经在做真实工作，算力不再空闲。
+此时每个被拒绝的投机 token 都是从真实计算里抢来的，命中收益 < 浪费成本，净亏。
+
+---
+
+## draft model 没跑成 —— 两个失败原因
+
+### 1. 当前 vLLM V1 engine 不支持通用 draft model
+
+```
+ValueError: Speculative decoding with draft model is not supported yet.
+Please consider using other speculative decoding methods such as
+ngram, medusa, eagle, or deepseek_mtp.
+```
+
+投机解码的实现正在从"任意小模型当 draft"收敛到**和 target 模型一起训练的专用 draft head**
+（EAGLE、Medusa、MTP）。原因是专用 head 共享 target 的 hidden state，acceptance rate
+远高于独立小模型，而且不额外占一份完整权重。
+
+### 2. vocab_size 不匹配（顺带暴露的机制细节）
+
+```
+Target model vocab_size=152064, Draft model vocab_size=151936
+```
+
+Qwen2.5-7B 和 Qwen2.5-0.5B **用的是同一个 tokenizer**，真实 token 数一致（~151,643）。
+差的 128 是 **embedding 矩阵的 padding**——7B 补齐到 256 的倍数，0.5B 补到 128 的倍数，
+为了 tensor core 对齐和张量并行切分。
+
+**所以"draft 和 target 必须同 tokenizer"在工程上真正的要求是"必须同 vocab_size"**：
+rejection sampling 要把两个 logits 向量逐位比对，长度不同就无法比较。语义兼容不够。
+
+→ 这个错误正好回答了 Task 3 的第二个问题。
+
+---
+
+## 遗留问题：8% 太小了
+
+ngram 在 batch=1 只赚 8%，远低于文献里报的 2x。假设是 **acceptance rate 太低**：
+本实验的任务是 summarize/explain，模型生成的是**新组织的语言**，而 ngram 的猜测方式是
+"在 prompt 和已生成内容里找重复 n-gram"——猜测大多被拒绝。
+
+补充实验 `ngram_acceptance.py`：保持引擎不变，只换任务形态（逐字复制 vs 自由生成），
+看加速比是否随之变化。若 copy 任务的加速显著高于 novel 任务，即可确认
+**投机解码的收益是 acceptance rate 的函数，与引擎无关，与任务形态强相关**。
+
+结果：
+
+| 任务 | 配置 | batch | total tok/s | vs baseline |
+|------|------|-------|-------------|-------------|
+| novel | baseline | 1 | | 1.00x |
+| novel | ngram | 1 | | |
+| copy | baseline | 1 | | 1.00x |
+| copy | ngram | 1 | | |
+| novel | baseline | 16 | | 1.00x |
+| novel | ngram | 16 | | |
+| copy | baseline | 16 | | 1.00x |
+| copy | ngram | 16 | | |
