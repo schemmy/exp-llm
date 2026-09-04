@@ -48,14 +48,14 @@ When Chenxin references "week N", "the transition", "vLLM benchmark", "Modal GPU
 
 ---
 
-## Current state (as of 2026-08-30)
+## Current state (as of 2026-09-04)
 
 - **Phase**: P1 — Inference foundations
-- **Week**: 1 of 52
-- **This week's task**: environment setup on Modal (see `week01.md`)
-- **Blog #1 target date**: ~2026-11-21 (end of Wk 12)
+- **Week**: 9 of 52
+- **This week's task**: tensor parallelism (see `week09.md`)
+- **Blog #1 target date**: ~2026-12-05 (end of Wk 14)
 
-For live status, always check `progress.md` — this section is a snapshot from creation day.
+For live status, always check `progress.md` — this section is a snapshot.
 
 ---
 
@@ -63,5 +63,5 @@ For live status, always check `progress.md` — this section is a snapshot from 
 
 - Open `weekXX.md` at the start of each week — that's your task list
 - Update `progress.md` at end of each week (30 sec: ✅ or 🟡, add artifact link)
-- Refer to `PLAN.md` at phase transitions (Wk 12, 24, 36) for decisions and re-scoping
+- Refer to `PLAN.md` at phase transitions (Wk 14, 26, 38) for decisions and re-scoping
 - Add papers you actually read to `resources.md` — kill entries that turn out low-yield

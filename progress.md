@@ -18,30 +18,32 @@ Convention: one line per week. Mark ✅ done, 🟡 partial, ❌ skipped. Add a l
 | 6  | 10-04 → 10-10 | Continuous batching cont'd | ✅ | Load pressure sweep：A100 未饱和，TTFT 33→39ms (5→50 req/s)，throughput 763→3273 tok/s；短 prompt 下 prefill 太快，需长 prompt 才能看到 TTFT 崩溃 |
 | 7  | 10-11 → 10-17 | Prefix caching toggle | ✅ | TTFT P50: 829ms→156ms (5.3x)；throughput 835→1412 tok/s；~500-token shared RAG prefix，32 concurrent requests |
 | 8  | 10-18 → 10-24 | Speculative decoding toggle | ✅ | acceptance rate 是主变量：copy 任务 2.78x (b=1) / 2.38x (b=16)，novel 任务 1.13x / **0.85x 净亏**。draft model 在 vLLM V1 不受支持 |
-| 9  | 10-25 → 10-31 | INT8 / FP8 quantization | ☐ | |
-| 10 | 11-01 → 11-07 | INT4 quantization + tradeoff table | ☐ | |
-| 11 | 11-08 → 11-14 | Blog #1 draft + repo README | ☐ | |
-| 12 | 11-15 → 11-21 | **Publish Blog #1** | ☐ | |
+| 9  | 10-25 → 10-31 | Tensor parallelism: TP=1 vs 2 vs 4 | ☐ | |
+| 10 | 11-01 → 11-07 | MoE inference + expert parallelism | ☐ | |
+| 11 | 11-08 → 11-14 | INT8 / FP8 quantization | ☐ | |
+| 12 | 11-15 → 11-21 | INT4 quantization + tradeoff table | ☐ | |
+| 13 | 11-22 → 11-28 | Blog #1 draft + repo README | ☐ | |
+| 14 | 11-29 → 12-05 | **Publish Blog #1** | ☐ | |
 
-**P1 retro** (fill after Wk 12): what worked / what didn't / adjust for P2?
-
----
-
-## Phase 2 — Distributed training (Wk 13-24)
-
-To be filled in at end of Wk 12.
+**P1 retro** (fill after Wk 14): what worked / what didn't / adjust for P2?
 
 ---
 
-## Phase 3 — GPU serving + platform (Wk 25-36)
+## Phase 2 — Distributed training (Wk 15-26)
 
-To be filled in at end of Wk 24.
+To be filled in at end of Wk 14.
 
 ---
 
-## Phase 4 — CUDA + systems depth (Wk 37-52)
+## Phase 3 — GPU serving + platform (Wk 27-38)
 
-To be filled in at end of Wk 36. Reevaluate whether to stick with CUDA vs. swap to OSS-contribution track.
+To be filled in at end of Wk 26.
+
+---
+
+## Phase 4 — CUDA + systems depth (Wk 39-52)
+
+To be filled in at end of Wk 38. Reevaluate whether to stick with CUDA vs. swap to OSS-contribution track.
 
 ---
 
@@ -53,3 +55,4 @@ To be filled in at end of Wk 36. Reevaluate whether to stick with CUDA vs. swap 
 - **2026-08-31**: Wk 1 complete. Modal set up, HF baseline 31 tok/s on A100 (Qwen2.5-0.5B). Kept everything in one repo (no separate vllm-benchmarks). PagedAttention orientation done.
 - **2026-09-06**: Wk 2 complete. 7B baseline ~40 tok/s (Qwen2.5-7B-Instruct, A100, fp16). Surprising finding: 7B faster than 0.5B due to better GPU arithmetic intensity.
 - **2026-09-06**: Wk 3 complete. vLLM running on Modal (needed nvidia/cuda devel image for nvcc). Single-req: 2x HF. Batch(8): ~18x HF serial throughput. Core lesson: continuous batching is where vLLM wins.
+- **2026-09-04**: **Plan change — P1 extended to 14 weeks.** Audit found the original plan never left a single GPU for *inference*: P1 was single-A100, P2's multi-GPU work is training (DDP/FSDP/ZeRO), P3 orchestrates replicas of a single-GPU-sized model, P4 is kernels. "The model doesn't fit on one GPU" — tensor / pipeline / expert parallelism — was absent end to end, despite being table stakes at every target company. Inserted Wk 9 (tensor parallelism) and Wk 10 (MoE + expert parallelism); quantization → Wk 11-12, Blog #1 → Wk 13-14. All later phases shift +2 weeks; P4 absorbs the compression (the plan already flags it as the swappable phase).
