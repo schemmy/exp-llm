@@ -34,8 +34,8 @@ AsyncEngineArgs(model=..., enable_prefix_caching=True)
 - 第一条请求仍需完整 prefill，结果写入 cache
 - 后续请求命中 cache 则直接跳过对应 tokens 的 prefill
 
-- [ ] 理解 block hash 机制
-- [ ] 知道 cache miss vs cache hit 的 TTFT 差异来自哪里
+- [x] 理解 block hash 机制
+- [x] 知道 cache miss vs cache hit 的 TTFT 差异来自哪里
 
 ---
 
@@ -49,8 +49,8 @@ AsyncEngineArgs(model=..., enable_prefix_caching=True)
 
 预期：cache OFF 时每条都要跑完整 500-token prefill；cache ON 时第一条 cache miss，后续 31 条 cache hit，TTFT 暴跌。
 
-- [ ] 写 `experiments/wk07_prefix_cache/prefix_cache_exp.py`
-- [ ] 跑实验，记录结果
+- [x] 写 `experiments/wk07_prefix_cache/prefix_cache_exp.py`
+- [x] 跑实验，记录结果
 
 ---
 
@@ -61,14 +61,14 @@ Prefix caching 不是万能的：
 - Cache 占用 GPU 内存，影响 max batch size
 - 动态 prefix（每条请求 prefix 都不同）无收益
 
-- [ ] 思考：RAG 场景下 prefix caching 的局限是什么？
+- [x] 思考：RAG 场景下 prefix caching 的局限是什么？
 
 ---
 
 ### Task 4 — 日志 (10 min)
 
-- [ ] 更新 `progress.md` Wk7 行
-- [ ] commit + push
+- [x] 更新 `progress.md` Wk7 行
+- [x] commit + push
 
 ---
 
@@ -84,5 +84,5 @@ Prefix caching 不是万能的：
 
 | 场景 | TTFT P50 | TTFT P99 | Latency P50 | Throughput |
 |------|----------|----------|-------------|------------|
-| cache OFF | | | | |
-| cache ON | | | | |
+| cache OFF | 829ms | 1403ms | 2.27s | 835 tok/s |
+| cache ON  | 156ms | 346ms  | 1.10s | 1412 tok/s |
