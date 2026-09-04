@@ -92,6 +92,30 @@ Qwen2.5-7B 的配置：
 
 ---
 
+### Task 1.5 — 踩到的坑：Python 3.11 跑不了 TP>1
+
+第一次跑 TP=2 时，两个 worker 都死在 `init_device`：
+
+```
+flashinfer/comm/fd_exchange.py line 55
+    def _fd_ancillary(fd: int) -> tuple[tuple[int, int, array.array[int]]]:
+TypeError: type 'array.array' is not subscriptable
+```
+
+`array.array[int]` 这个泛型写法 **Python 3.12 才合法**（PEP 585 对 `array.array` 的支持是 3.12 加的）。
+它写在**函数注解**里，模块导入时就求值，所以 3.11 直接抛错。
+
+链路：TP>1 → 构造 `cuda_communicator` → 导入 `flashinfer_all_reduce` → 导入 `flashinfer.comm` → 炸。
+
+**为什么 Wk 1-8 从没遇到**：单卡不走 `cuda_communicator`，永远不会导入这个模块。
+这个 bug 只在多卡路径上存在。
+
+**修复**：wk09 的镜像用 `add_python="3.12"`。三档 TP 共用同一镜像，保证对比受控。
+
+（顺带确认 `/dev/shm` 有 80 GB，不是共享内存不足——那是我最初的错误猜测。）
+
+---
+
 ### Task 2 — 验证 TP=8 会失败 (15 min)
 
 - [ ] 手动改成 `tensor_parallel_size=8` 跑一次（或直接读 vLLM 源码的校验逻辑）

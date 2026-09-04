@@ -18,10 +18,18 @@ import modal
 import time
 
 app = modal.App("vllm-tp-sweep")
+
+# Python 3.12, not 3.11 as in wk01-08. flashinfer's comm module annotates a helper
+# with `array.array[int]`; array.array only became subscriptable in 3.12, and the
+# annotation is evaluated at import time, so on 3.11 the import raises
+#   TypeError: type 'array.array' is not subscriptable
+# vLLM imports that module while building the CUDA communicator, which happens only
+# for TP>1 — which is exactly why every single-GPU week ran fine on 3.11 and TP=2
+# died at worker init. All three legs share this image so the sweep stays controlled.
 image = (
     modal.Image.from_registry(
         "nvidia/cuda:12.4.0-devel-ubuntu22.04",
-        add_python="3.11",
+        add_python="3.12",
     )
     .pip_install("vllm")
 )
@@ -55,13 +63,11 @@ def bench(tp: int):
     import os
     import subprocess
 
-    # Set before importing vllm so the workers inherit them. Doing this here rather
-    # than via Image.env() keeps the image cache key untouched — adding a layer would
-    # force a full vllm reinstall on every script in this repo.
-    #   spawn: fork breaks once the parent has touched CUDA, which is how TP>1 dies
-    #          during WorkerProc startup
-    #   cumem: NCCL's cuMem allocator needs IPC handles that many container runtimes
-    #          do not grant; disabling it falls back to a path that works in sandboxes
+    # Set before importing vllm so the workers inherit them.
+    #   spawn: fork hands a broken CUDA context to workers once the parent has
+    #          touched CUDA. Standard for vLLM TP.
+    #   cumem: defensive — NCCL's cuMem allocator wants IPC handles some container
+    #          runtimes withhold. Not the cause of the 3.11 failure, kept as a guard.
     os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
     os.environ.setdefault("NCCL_CUMEM_ENABLE", "0")
 
