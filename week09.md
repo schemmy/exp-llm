@@ -148,11 +148,18 @@ TypeError: type 'array.array' is not subscriptable
 
 ## 结果（跑完后填）
 
+环境：Python 3.12，vLLM v0.28.0，A100-80GB，fp16，输出 256 tokens。
+**注意**：这组数字不能和 Wk 3-8 直接比——Python 版本、vLLM 版本、输出长度都变了，
+而且 v0.28 默认开启了 prefix caching 和 chunked prefill。组内对比才有效。
+
 | TP | batch=1 | batch=8 | batch=32 | 每卡权重 |
 |----|---------|---------|----------|---------|
-| 1 | | | | 14 GB |
+| 1 | 97.2 tok/s | 786.3 tok/s | 2,950.2 tok/s | 14 GB |
 | 2 | | | | 7 GB |
 | 4 | | | | 3.5 GB |
+
+TP=1 的 TPOT：batch=1 → 10.3ms，batch=8 → 10.2ms，batch=32 → 10.8ms。
+KV cache 可用 56.21 GiB，能装 1,052,560 tokens。
 
 加速比（相对 TP=1）：
 

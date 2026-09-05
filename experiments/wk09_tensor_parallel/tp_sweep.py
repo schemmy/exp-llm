@@ -44,9 +44,16 @@ BATCH_SIZES = [1, 8, 32]
 # cache key, so adding them does not trigger a rebuild.
 HF_CACHE = modal.Volume.from_name("hf-cache", create_if_missing=True)
 VLLM_CACHE = modal.Volume.from_name("vllm-compile-cache", create_if_missing=True)
-CACHES = {
+
+# Each leg writes its own result file the moment it finishes. A dropped client no
+# longer costs anything already measured — re-run only the missing legs (TP_ONLY=2)
+# and the report still assembles the full table from whatever is on disk.
+RESULTS = modal.Volume.from_name("tp-sweep-results", create_if_missing=True)
+
+VOLUMES = {
     "/root/.cache/huggingface": HF_CACHE,
     "/root/.cache/vllm": VLLM_CACHE,
+    "/results": RESULTS,
 }
 
 PROMPTS = [
@@ -124,25 +131,34 @@ def bench(tp: int):
             f"per-req={tps/batch:.1f} tok/s  TPOT={tpot:.1f}ms"
         )
 
-    return {"tp": tp, "throughput": results}
+    out = {"tp": tp, "throughput": results}
+
+    import json
+    import pathlib
+    pathlib.Path("/results").mkdir(exist_ok=True)
+    pathlib.Path(f"/results/tp{tp}.json").write_text(json.dumps(out))
+    RESULTS.commit()
+    print(f"  → saved /results/tp{tp}.json")
+
+    return out
 
 
-@app.function(gpu="A100-80GB:1", image=image, volumes=CACHES, timeout=1800)
+@app.function(gpu="A100-80GB:1", image=image, volumes=VOLUMES, timeout=1800)
 def tp1():
     return bench(1)
 
 
-@app.function(gpu="A100-80GB:2", image=image, volumes=CACHES, timeout=1800)
+@app.function(gpu="A100-80GB:2", image=image, volumes=VOLUMES, timeout=1800)
 def tp2():
     return bench(2)
 
 
-@app.function(gpu="A100-80GB:4", image=image, volumes=CACHES, timeout=1800)
+@app.function(gpu="A100-80GB:4", image=image, volumes=VOLUMES, timeout=1800)
 def tp4():
     return bench(4)
 
 
-@app.function(gpu="A100-80GB:4", image=image, volumes=CACHES, timeout=600)
+@app.function(gpu="A100-80GB:4", image=image, volumes=VOLUMES, timeout=600)
 def test_tp8_fails():
     """TP is capped by num_key_value_heads (4 for Qwen2.5-7B), not by GPU count."""
     from vllm import LLM
@@ -151,6 +167,22 @@ def test_tp8_fails():
         print("\n[!] TP=8 unexpectedly succeeded — check the model's KV head count.")
     except Exception as e:
         print(f"\n[expected] TP=8 rejected:\n  {type(e).__name__}: {e}")
+
+
+@app.function(image=image, volumes=VOLUMES, timeout=120)
+def collect():
+    """Read whatever legs have completed, across any number of past sessions."""
+    import json
+    import pathlib
+    rows = []
+    for tp in (1, 2, 4):
+        p = pathlib.Path(f"/results/tp{tp}.json")
+        if p.exists():
+            r = json.loads(p.read_text())
+            # JSON turns the int batch keys into strings on the way out
+            r["throughput"] = {int(k): v for k, v in r["throughput"].items()}
+            rows.append(r)
+    return rows
 
 
 @app.local_entrypoint()
@@ -162,20 +194,36 @@ def main():
         cases = [c for c in cases if str(c[1]) == only]
 
     print("TP sweep on Qwen2.5-7B — runs 1, 2, then 4 GPUs sequentially.\n")
-    rows = []
     for fn, tp in cases:
         try:
-            rows.append(fn.remote())
+            fn.remote()
         except Exception as e:
             print(f"\n!!! TP={tp} failed: {type(e).__name__}: {e}\n")
 
+    # Build the table from the volume, not from this session's return values, so
+    # legs measured in earlier runs still count.
+    rows = collect.remote()
     if not rows:
+        print("No results on the volume yet.")
+        return
+    if not any(r["tp"] == 1 for r in rows):
+        print("TP=1 baseline missing — run it before the speedup table means anything.")
+        for r in rows:
+            print(f"  TP={r['tp']}: {r['throughput']}")
         return
 
-    base = rows[0]["throughput"]
+    base = next(r for r in rows if r["tp"] == 1)["throughput"]
+
+    print(f"\n{'='*62}\n  THROUGHPUT (tok/s)\n{'='*62}")
+    print("  TP   " + "".join(f"batch={b:<12}" for b in BATCH_SIZES))
+    for r in rows:
+        line = f"  {r['tp']:<5}"
+        for b in BATCH_SIZES:
+            line += f"{r['throughput'][b]:,.1f}".ljust(18)
+        print(line)
+
     print(f"\n{'='*62}\n  SPEEDUP vs TP=1\n{'='*62}")
-    header = "  TP   " + "".join(f"batch={b:<12}" for b in BATCH_SIZES)
-    print(header)
+    print("  TP   " + "".join(f"batch={b:<12}" for b in BATCH_SIZES))
     for r in rows:
         line = f"  {r['tp']:<5}"
         for b in BATCH_SIZES:
