@@ -38,6 +38,17 @@ MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 OUTPUT_TOKENS = 256
 BATCH_SIZES = [1, 8, 32]
 
+# Without these, every leg re-downloads 15 GB of weights and re-runs inductor from
+# scratch — three legs of that is ~20 minutes of foreground time, which is how a
+# single network blip took down the whole sweep. Volumes are not part of the image
+# cache key, so adding them does not trigger a rebuild.
+HF_CACHE = modal.Volume.from_name("hf-cache", create_if_missing=True)
+VLLM_CACHE = modal.Volume.from_name("vllm-compile-cache", create_if_missing=True)
+CACHES = {
+    "/root/.cache/huggingface": HF_CACHE,
+    "/root/.cache/vllm": VLLM_CACHE,
+}
+
 PROMPTS = [
     "Explain gradient descent:", "What is the CAP theorem:",
     "How does TCP work:", "Describe transformer architecture:",
@@ -86,6 +97,11 @@ def bench(tp: int):
             print(f"({label} unavailable: {e})")
 
     llm = LLM(model=MODEL_ID, dtype="float16", tensor_parallel_size=tp)
+
+    # Persist the weights now rather than at function exit, so a failure in the
+    # benchmark below does not throw away a 15 GB download.
+    HF_CACHE.commit()
+
     params = SamplingParams(max_tokens=OUTPUT_TOKENS, temperature=0)
 
     # warmup absorbs torch.compile + CUDA graph capture + NCCL handshake
@@ -111,22 +127,22 @@ def bench(tp: int):
     return {"tp": tp, "throughput": results}
 
 
-@app.function(gpu="A100-80GB:1", image=image, timeout=1800)
+@app.function(gpu="A100-80GB:1", image=image, volumes=CACHES, timeout=1800)
 def tp1():
     return bench(1)
 
 
-@app.function(gpu="A100-80GB:2", image=image, timeout=1800)
+@app.function(gpu="A100-80GB:2", image=image, volumes=CACHES, timeout=1800)
 def tp2():
     return bench(2)
 
 
-@app.function(gpu="A100-80GB:4", image=image, timeout=1800)
+@app.function(gpu="A100-80GB:4", image=image, volumes=CACHES, timeout=1800)
 def tp4():
     return bench(4)
 
 
-@app.function(gpu="A100-80GB:4", image=image, timeout=600)
+@app.function(gpu="A100-80GB:4", image=image, volumes=CACHES, timeout=600)
 def test_tp8_fails():
     """TP is capped by num_key_value_heads (4 for Qwen2.5-7B), not by GPU count."""
     from vllm import LLM
