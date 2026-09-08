@@ -46,7 +46,8 @@ Each phase caps with a public artifact. If a phase runs long, extend rather than
 | 7–8 | Toggle prefix caching + speculative decoding | Ablation table |
 | 9 | **Tensor parallelism**: 32B model on 2×/4×A100, `tensor_parallel_size` sweep. Where does TP stop scaling, and why (NVLink vs PCIe, all-reduce cost)? | TP scaling curve + comms-overhead analysis |
 | 10 | **MoE + expert parallelism**: Qwen1.5-MoE-A2.7B (14.3B total / 2.7B active) vs a dense model at matched active params. Memory vs speed tradeoff. | MoE-vs-dense table; EP notes |
-| 11–12 | Quantization: INT8 / FP8 / INT4 — accuracy vs latency | Quantization tradeoff table |
+| 11 | **Roofline ridge point**: batch sweep to 512, find where throughput leaves linear (predicted M≈153 on A100) + INT8/FP8 quantization | Batch × throughput curve with measured ridge; fp16 vs INT8 table |
+| 12 | INT4 quantization + accuracy/latency tradeoff table | Quantization tradeoff table |
 | 13–14 | Write blog + repo README; publish to GitHub Pages | **Blog #1 shipped** |
 
 **Why Wk 9–10 were added** (2026-09-04): the original plan never left a single GPU for *inference*. P2's multi-GPU content is training (DDP/FSDP/ZeRO); P3 orchestrates replicas of a model that already fits on one card; P4 is kernels. So "the model doesn't fit on one GPU" — the defining constraint of frontier inference — appeared nowhere in 52 weeks. Every target company (Anthropic Fleet, Together, Fireworks) serves models where TP is table stakes, and it is the missing bridge between P1's single-GPU tuning and P3's production serving.
