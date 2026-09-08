@@ -4,7 +4,53 @@ Reproducible benchmarks for LLM serving on a single GPU.
 Comparing HuggingFace transformers baseline vs vLLM with continuous
 batching, PagedAttention, prefix caching, and quantization.
 
-**Status**: Week 9 of 14 — tensor parallelism complete.
+**Status**: Week 10 of 14 — MoE and expert parallelism complete.
+
+## MoE vs Dense (Week 10)
+
+Three Qwen1.5 models, one A100-80GB, fp16, 256 output tokens:
+
+| Model | total / active | batch=1 | batch=32 |
+|-------|----------------|---------|----------|
+| Qwen1.5-1.8B | 1.8B / 1.8B | 314.5 tok/s | 7,312.9 tok/s |
+| **Qwen1.5-MoE-A2.7B** | 14.3B / 2.7B | **228.5 tok/s** | **1,829.6 tok/s** |
+| Qwen1.5-14B | 14B / 14B | 54.5 tok/s | 1,487.3 tok/s |
+
+Where the MoE lands between its controls (0% = as slow as the 14B dense,
+100% = as fast as the 1.8B dense): **67% at batch=1, 6% at batch=32.**
+
+*The MoE's advantage evaporates with batch size, and GEMM shape explains it. At
+batch=1 both models issue an M=1 GEMM, so only weight traffic differs and the
+MoE's 2.7B active beats the 14B dense by 4.19x. At batch=32 the dense model gets
+one M=32 GEMM, while the MoE scatters 32 tokens x top-4 across 60 experts —
+roughly 2 tokens each, i.e. sixty M≈2 GEMMs. Batching is the one lever MoE
+cannot pull.*
+
+*Serving implication: what matters is per-expert batch. Reaching a dense-equivalent
+M=32 per expert would need roughly 480 concurrent requests on this model.*
+
+## Expert Parallelism (Week 10)
+
+Qwen1.5-MoE-A2.7B, 2x A100-80GB:
+
+| Config | batch=1 | batch=32 |
+|--------|---------|----------|
+| 1 GPU (reference) | 228.5 tok/s | **1,829.6 tok/s** |
+| TP=2 | 271.0 tok/s (1.19x) | 1,530.2 tok/s (**0.84x**) |
+| TP=2 + expert parallel | 239.8 tok/s (1.05x) | 1,029.3 tok/s (**0.56x**) |
+
+*Adding GPUs makes this MoE slower at batch=32. Contrast the dense Qwen2.5-7B in
+Week 9, where TP=2 gave a steady 1.53x: dense GEMMs are large enough to survive
+being sliced, while an MoE expert's M≈2 GEMM is not. Slicing an already-tiny GEMM
+and paying all-reduce on top is a net loss.*
+
+*Expert parallelism loses throughout, and by more at larger batch (0.89x → 0.67x).
+EP's benefit is a function of expert count and GPU count, not batch size: with 60
+experts over 2 GPUs each GPU still holds 30 experts each seeing ~2 tokens, so M is
+unchanged while two all-to-alls are added. EP starts paying only when experts number
+in the hundreds (DeepSeek-V3 has 256) and TP would shred each one.*
+
+---
 
 ## Tensor Parallelism (Week 9)
 

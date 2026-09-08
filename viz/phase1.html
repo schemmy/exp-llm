@@ -649,8 +649,8 @@
         <tr>
           <td>MoE / 专家并行 <span style="color:var(--faint);font-family:var(--mono);font-size:11px">Wk 10</span></td>
           <td><span class="tag dc">decode</span></td>
-          <td>每 token 只读激活的权重</td>
-          <td>待测</td>
+          <td>每 token 只读激活的权重，但 GEMM 被打散</td>
+          <td>batch=1 4.19x ／ batch=32 仅 1.23x</td>
         </tr>
         <tr>
           <td>量化 <span style="color:var(--faint);font-family:var(--mono);font-size:11px">Wk 11–12</span></td>

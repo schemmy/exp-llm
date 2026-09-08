@@ -19,7 +19,7 @@ Convention: one line per week. Mark ✅ done, 🟡 partial, ❌ skipped. Add a l
 | 7  | 10-11 → 10-17 | Prefix caching toggle | ✅ | TTFT P50: 829ms→156ms (5.3x)；throughput 835→1412 tok/s；~500-token shared RAG prefix，32 concurrent requests |
 | 8  | 10-18 → 10-24 | Speculative decoding toggle | ✅ | acceptance rate 是主变量：copy 任务 2.78x (b=1) / 2.38x (b=16)，novel 任务 1.13x / **0.85x 净亏**。draft model 在 vLLM V1 不受支持 |
 | 9  | 10-25 → 10-31 | Tensor parallelism: TP=1 vs 2 vs 4 | ✅ | TP=2 1.55x / TP=4 2.16x（效率 75% / 54%，跨 batch 恒定）；**每卡吞吐反而下降**——TP 买延迟不买性价比；KV 容量 1.05M→5.14M tokens |
-| 10 | 11-01 → 11-07 | MoE inference + expert parallelism | 🟡 | Task 1 完成：**MoE 优势随 batch 蒸发**——batch=1 时达到小稠密速度的 67%，batch=32 只剩 6%。batching 是 MoE 唯一吃不到的红利（token 被打散到 60 个专家，`M=32` 退化成 60 个 `M≈2`）。Task 2 (EP) 待跑 |
+| 10 | 11-01 → 11-07 | MoE inference + expert parallelism | ✅ | **MoE 优势随 batch 蒸发**：batch=1 达小稠密速度 67%，batch=32 只剩 6%——token 被打散到 60 个专家，`M=32` 碎成 60 个 `M≈2`。**多卡在 batch=32 是负收益**：TP=2 0.84x、+EP 0.56x（对比稠密模型 TP=2 是 1.53x）。GEMM 已经太小时，加并行只会更糟 |
 | 11 | 11-08 → 11-14 | INT8 / FP8 quantization | ☐ | |
 | 12 | 11-15 → 11-21 | INT4 quantization + tradeoff table | ☐ | |
 | 13 | 11-22 → 11-28 | Blog #1 draft + repo README | ☐ | |
