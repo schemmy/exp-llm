@@ -643,8 +643,8 @@
         <tr>
           <td>张量并行 <span style="color:var(--faint);font-family:var(--mono);font-size:11px">Wk 9</span></td>
           <td><span class="tag pf">prefill</span> <span class="tag dc">decode</span></td>
-          <td>单卡装不下 → 切开，代价是通信</td>
-          <td>待测</td>
+          <td>每卡权重减半 → 带宽压力减半，代价是 56 次 all-reduce</td>
+          <td>TP=2 1.55x ／ TP=4 2.16x</td>
         </tr>
         <tr>
           <td>MoE / 专家并行 <span style="color:var(--faint);font-family:var(--mono);font-size:11px">Wk 10</span></td>

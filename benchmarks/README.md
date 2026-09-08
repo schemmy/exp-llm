@@ -4,7 +4,34 @@ Reproducible benchmarks for LLM serving on a single GPU.
 Comparing HuggingFace transformers baseline vs vLLM with continuous
 batching, PagedAttention, prefix caching, and quantization.
 
-**Status**: Week 8 of 12 — speculative decoding complete.
+**Status**: Week 9 of 14 — tensor parallelism complete.
+
+## Tensor Parallelism (Week 9)
+
+Qwen2.5-7B-Instruct, A100-80GB, fp16, 256 output tokens, vLLM v0.28 / Python 3.12.
+Only `tensor_parallel_size` changes between rows.
+
+| TP | batch=1 | batch=8 | batch=32 | TPOT (b=1) | weights/GPU | KV cache capacity |
+|----|---------|---------|----------|------------|-------------|-------------------|
+| 1 | 97.2 tok/s | 786.3 tok/s | 2,950.2 tok/s | 10.3 ms | 14.29 GiB | 1,052,560 tok |
+| 2 | 150.6 tok/s | 1,101.6 tok/s | 4,501.9 tok/s | 6.6 ms | 7.16 GiB | 2,431,792 tok |
+| 4 | 210.0 tok/s | 1,727.7 tok/s | 6,283.3 tok/s | 4.8 ms | 3.63 GiB | 5,135,248 tok |
+
+Speedup vs TP=1: **1.40–1.55x at TP=2, 2.13–2.20x at TP=4** — roughly 75% and 54%
+parallel efficiency, and notably *constant across batch size*. The shortfall is the
+56 all-reduces per forward pass (28 layers x 2).
+
+*Per-GPU throughput falls as TP rises: 2,950 → 2,251 → 1,571 tok/s per GPU at
+batch=32. Tensor parallelism buys latency and capacity, not throughput per dollar —
+four TP=1 replicas beat one TP=4 replica for pure throughput.*
+
+*KV cache capacity scales better than throughput (1.05M → 5.14M tokens, 32x → 157x
+max concurrency), because sharding frees both weight memory and KV heads.*
+
+*TP=4 is the ceiling for this model: Qwen2.5-7B has 4 KV heads under GQA, so TP=4
+leaves exactly one per GPU.*
+
+---
 
 ## Speculative Decoding (Week 8)
 

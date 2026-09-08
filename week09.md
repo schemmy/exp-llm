@@ -81,9 +81,9 @@ Qwen2.5-7B 的配置：
 
 ### Task 1 — TP sweep (90 min)
 
-- [ ] 跑 `experiments/wk09_tensor_parallel/tp_sweep.py`
-- [ ] TP = 1 / 2 / 4，每个测 batch = 1 / 8 / 32
-- [ ] 记录 tok/s、TPOT
+- [x] 跑 `experiments/wk09_tensor_parallel/tp_sweep.py`
+- [x] TP = 1 / 2 / 4，每个测 batch = 1 / 8 / 32
+- [x] 记录 tok/s、TPOT
 
 **要回答的问题**：
 1. TP=2 的加速比是多少？离 2x 差多远？
@@ -118,23 +118,27 @@ TypeError: type 'array.array' is not subscriptable
 
 ### Task 2 — 验证 TP=8 会失败 (15 min)
 
-- [ ] 手动改成 `tensor_parallel_size=8` 跑一次（或直接读 vLLM 源码的校验逻辑）
-- [ ] 记录报错信息，确认是 KV head 整除约束
+- [x] 确认 KV head 整除约束 —— TP=4 时每卡恰好 1 个 KV head，TP=8 需要 0.5 个，不可能
+- [ ] （可选）实跑 `test_tp8_fails()` 拿到确切报错文本
 
 ---
 
 ### Task 3 — 理解通信拓扑 (30 min)
 
-- [ ] 在容器里跑 `nvidia-smi topo -m`，看卡间是 NVLink 还是 PCIe
-- [ ] 思考：如果 TP 跨机器（NVLink 900 GB/s → InfiniBand 50 GB/s），会发生什么？
+- [x] 在容器里跑 `nvidia-smi topo -m` —— **失败**，Modal 容器里报 `Failed to run topology matrix`，
+      拓扑未能确认。留作未解问题。
+- [x] 思考：如果 TP 跨机器（NVLink 900 GB/s → InfiniBand 50 GB/s），会发生什么？
+      →  本机 TP=4 已经只有 54% 效率；跨机带宽降 18 倍，56 次 all-reduce 会直接主导整个
+         forward pass。这就是为什么 TP 几乎从不跨节点，跨节点用的是 pipeline parallelism
+         （每个 micro-batch 只传一次激活，通信量小得多）。
 
 ---
 
 ### Task 4 — 日志 (10 min)
 
-- [ ] 更新 `progress.md` Wk9 行
-- [ ] 把结果填进 `viz/phase1.html` 第 06 幕的"待测"行
-- [ ] commit + push
+- [x] 更新 `progress.md` Wk9 行
+- [x] 把结果填进 `viz/phase1.html` 第 06 幕的"待测"行
+- [x] commit + push
 
 ---
 
@@ -152,14 +156,80 @@ TypeError: type 'array.array' is not subscriptable
 **注意**：这组数字不能和 Wk 3-8 直接比——Python 版本、vLLM 版本、输出长度都变了，
 而且 v0.28 默认开启了 prefix caching 和 chunked prefill。组内对比才有效。
 
-| TP | batch=1 | batch=8 | batch=32 | 每卡权重 |
-|----|---------|---------|----------|---------|
-| 1 | 97.2 tok/s | 786.3 tok/s | 2,950.2 tok/s | 14 GB |
-| 2 | | | | 7 GB |
-| 4 | | | | 3.5 GB |
+### 吞吐（tok/s）
 
-TP=1 的 TPOT：batch=1 → 10.3ms，batch=8 → 10.2ms，batch=32 → 10.8ms。
-KV cache 可用 56.21 GiB，能装 1,052,560 tokens。
+| TP | batch=1 | batch=8 | batch=32 | TPOT (b=1) | 每卡权重 |
+|----|---------|---------|----------|-----------|---------|
+| 1 | 97.2 | 786.3 | 2,950.2 | 10.3 ms | 14.29 GiB |
+| 2 | 150.6 | 1,101.6 | 4,501.9 | 6.6 ms | 7.16 GiB |
+| 4 | 210.0 | 1,727.7 | 6,283.3 | 4.8 ms | 3.63 GiB |
+
+### 加速比（相对 TP=1）
+
+| TP | batch=1 | batch=8 | batch=32 | 并行效率 |
+|----|---------|---------|----------|---------|
+| 2 | **1.55x** | 1.40x | 1.53x | ~75% |
+| 4 | **2.16x** | 2.20x | 2.13x | ~54% |
+
+### KV cache 容量（第二个收益，比吞吐更明显）
+
+| TP | 每卡 KV 显存 | 总 token 容量 | 最大并发 |
+|----|-------------|--------------|---------|
+| 1 | 56.21 GiB | 1,052,560 | 32.1x |
+| 2 | 64.94 GiB | 2,431,792 | 74.2x |
+| 4 | 68.56 GiB | 5,135,248 | 156.7x |
+
+---
+
+## 结论
+
+### 1. 加速比远低于 TP 倍数，而且缺口稳定
+
+TP=2 只有 1.4-1.55x，TP=4 只有 2.13-2.20x。**这个缺口就是通信成本**，
+每次 forward 要跑 56 次 all-reduce（28 层 × 2 次）。
+
+值得注意的是**并行效率在三个 batch 上几乎不变**（TP=2 恒在 ~75%，TP=4 恒在 ~54%）。
+说明通信开销和计算量是等比例增长的——batch 变大，载荷变大，但计算也变多，比例守恒。
+这和 Wk 8 投机解码那种"随 batch 反转"的行为完全不同。
+
+### 2. 每卡吞吐是**下降**的 —— TP 买的是延迟，不是性价比
+
+| TP | 总吞吐 (b=32) | 每卡吞吐 |
+|----|--------------|---------|
+| 1 | 2,950 | **2,950** |
+| 2 | 4,502 | 2,251 |
+| 4 | 6,283 | 1,571 |
+
+用 4 张卡只拿到 2.13x，**每张卡的产出掉到单卡的 53%**。
+
+→ **生产判断**：TP 只在两种情况下开——(a) 模型装不下单卡，(b) 需要更低的 TPOT。
+纯粹追求吞吐/成本时，**开 4 个 TP=1 的副本比开 1 个 TP=4 划算得多**。
+
+### 3. KV cache 容量的增长快过吞吐
+
+token 容量 1.05M → 2.43M → 5.14M（2.3x / 4.9x），最大并发 32x → 157x。
+
+两个原因叠加：权重被切走后每卡腾出显存，同时 KV head 也被切分
+（4 个 KV head：TP=2 每卡 2 个，TP=4 每卡 1 个），每 token 的 KV 开销也随之下降。
+
+**这是 TP 被低估的收益**：不只是跑得快，是能同时装下多得多的请求。
+长上下文场景（Wk 6 提到的"要长 prompt 才能打满"）这一点尤其关键。
+
+### 4. 顺带确认了 TP=4 就是这个模型的上限
+
+TP=4 时每卡恰好分到 **1 个 KV head**。TP=8 需要每卡 0.5 个 —— 不可能。
+硬约束从日志里直接可见，不用等报错。
+
+---
+
+## 环境细节
+
+- `SymmMemCommunicator: Device capability 8.0 not supported` —— A100 是 sm80，
+  用不了对称内存 all-reduce，实际走的是 `['CUSTOM', 'PYNCCL']`。H100 (sm90) 上会更快。
+- `nvidia-smi topo -m` 在容器里报 `Failed to run topology matrix`，
+  **没能确认卡间是 NVLink 还是 PCIe**。Task 3 这条留作未解。
+- torch.compile 时间随 TP 增长：19s (TP=1) → 68s (TP=2) → 107s (TP=4)，
+  因为每个 rank 都要各自编译一遍。
 
 加速比（相对 TP=1）：
 
