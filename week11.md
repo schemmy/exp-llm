@@ -94,6 +94,39 @@ LLM(model=..., enforce_eager=True)   # 关掉 CUDA graph
 
 ---
 
+## Task 1.6 — 给每档 batch 算 MFU 和 MBU
+
+**MFU = Model FLOPs Utilization**（PaLM 论文提出）
+**MBU = Model Bandwidth Utilization**（Databricks/MosaicML 推理侧的对偶）
+
+```
+MFU = (2 × 参数量 × tok/s) / 峰值算力
+MBU = (权重字节数 × 每秒步数) / 峰值带宽
+
+A100:  峰值算力 312 TFLOPS (fp16)   峰值带宽 2,039 GB/s
+```
+
+用已有数据先手算两个点（Qwen2.5-7B，7.6B 参数，权重 15.3 GB）：
+
+| batch | tok/s | MFU | MBU | nvidia-smi GPU-Util |
+|-------|-------|-----|-----|---------------------|
+| 1 | 97.2 | **0.47%** | **~73%** | ~100% |
+| 32 | 2,950 | **14.4%** | **~69%** | ~100% |
+
+**三个数字同时成立，而且讲的是三件不同的事。**
+
+- `nvidia-smi` 的 GPU-Util 只统计"有 kernel 在跑的时间占比"，**对 LLM 推理近乎无意义**
+- MFU 从 0.47% 涨到 14.4%——这才是 batch 带来的真实收益
+- **MBU 几乎不动（73% → 69%）**：decode 一直贴着带宽天花板跑，
+  这台机器其实一直"很忙"，只是忙在搬数据不是算数据
+
+- [ ] 把 MFU/MBU 加进 batch sweep 的输出
+- [ ] 和 roofline 曲线画在一起——脊点左侧 MBU 主导，右侧 MFU 接管
+
+**这条把 Wk 4 / 8 / 9 / 10 统一了**：所有那些实验都在同一张 roofline 图上移动位置。
+
+---
+
 ## Task 2 — INT8 / FP8 量化
 
 - [ ] FP8 权重量化（A100 是 sm80，**不支持原生 FP8 计算**，只能做存储量化）
