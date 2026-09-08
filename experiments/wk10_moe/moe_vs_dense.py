@@ -80,7 +80,6 @@ def bench_model(key: str, model_id: str, total_b: float, active_b: float):
     os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
     os.environ.setdefault("NCCL_CUMEM_ENABLE", "0")
 
-    import torch
     from vllm import LLM, SamplingParams
 
     print(f"\n{'='*66}\n  {model_id}\n"
@@ -89,8 +88,20 @@ def bench_model(key: str, model_id: str, total_b: float, active_b: float):
     llm = LLM(model=model_id, dtype="float16", trust_remote_code=True)
     HF_CACHE.commit()
 
-    # Weight residency is the half of the trade that MoE does *not* improve.
-    weight_gib = torch.cuda.memory_allocated() / 1024**3
+    # Weight residency is the half of the trade MoE does *not* improve: every expert
+    # stays resident because the next token's routing is unknowable.
+    # torch.cuda.memory_allocated() reads zero here — the weights live in the
+    # EngineCore subprocess, not this one — so size the checkpoint on disk instead,
+    # which for fp16 is exactly what lands in HBM.
+    weight_gib = 0.0
+    try:
+        import glob
+        files = glob.glob(
+            f"/root/.cache/huggingface/**/models--{model_id.replace('/', '--')}"
+            "/**/*.safetensors", recursive=True)
+        weight_gib = sum(os.path.getsize(f) for f in files) / 1024**3
+    except Exception as e:
+        print(f"(weight size unavailable: {e})")
 
     params = SamplingParams(max_tokens=OUTPUT_TOKENS, temperature=0)
     llm.generate(PROMPTS[:1], SamplingParams(max_tokens=16, temperature=0))
