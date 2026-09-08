@@ -58,6 +58,34 @@ FLOPs   = 2·M·K·N
 - [ ] 画 batch × throughput，找偏离线性的拐点
 - [ ] 对照预测的 M≈153
 
+**为什么扫到 512 就停**：512 是 vLLM 的 `max_cudagraph_capture_size`（日志里那串
+capture sizes 的最后一个）。超过它会退回 eager 模式，**变成两个变量同时变**，
+拐点就说不清是 roofline 还是 CUDA graph 造成的。停在 512 保证只有一个自变量。
+
+---
+
+## Task 1.5 — CUDA graph 的开销占比（同一组 batch，加跑一遍 eager）
+
+**背景**：一次 decode 要 launch 约 300-400 个 kernel（每层十几个 × 28 层），
+每次 launch 约 5-10 µs 的 CPU 开销 → **约 2ms/token 的纯调度开销**。
+TPOT 才 10.3ms，所以这可能占了五分之一。
+
+CUDA graph 把整串 launch 录成一张 DAG，之后一次调用整体重放，CPU 开销近乎归零。
+代价是形状写死（所以要预录离散尺寸 + 向上取整）和额外显存（日志里 0.53 GiB）。
+
+**假设**：launch 开销是**每步固定**的，而每步计算量随 batch 增长
+→ **CUDA graph 的收益应该随 batch 单调递减**，和 roofline 是同一根轴。
+
+- [ ] 同样的 batch 扫描，加跑 `enforce_eager=True`
+- [ ] 算每档的 graph 收益 = `default / eager`
+
+**顺带补一个欠账**：Wk 3 测到 vLLM 单请求是 HF 的 2x，当时归因为
+"CUDA graph + torch.compile"，但**从未实测**。这个实验能把那 2x 拆开。
+
+```python
+LLM(model=..., enforce_eager=True)   # 关掉 CUDA graph
+```
+
 **显存不成问题**：Wk 9 测到 KV cache 容量 1,052,560 tokens，
 每条请求约 271 tokens（15 prompt + 256 output）→ 理论可容纳约 3,870 条并发。
 
@@ -99,15 +127,15 @@ FLOPs   = 2·M·K·N
 
 ### Task 1 — batch sweep
 
-| batch | tok/s | vs 线性外推 | 算术强度 |
-|-------|-------|-----------|---------|
-| 1 | | 1.00x | 1 |
-| 8 | | | 8 |
-| 32 | | | 32 |
-| 64 | | | 64 |
-| 128 | | | 128 |
-| 256 | | | 256 |
-| 512 | | | 512 |
+| batch | tok/s | vs 线性外推 | 算术强度 | eager tok/s | graph 收益 |
+|-------|-------|-----------|---------|------------|-----------|
+| 1 | | 1.00x | 1 | | |
+| 8 | | | 8 | | |
+| 32 | | | 32 | | |
+| 64 | | | 64 | | |
+| 128 | | | 128 | | |
+| 256 | | | 256 | | |
+| 512 | | | 512 | | |
 
 ### Task 2 — 量化
 
