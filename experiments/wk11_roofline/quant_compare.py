@@ -17,14 +17,21 @@ Two quantization paths, both loadable directly from the fp16 HF checkpoint
         bytes move over HBM, then upconvert to fp16 for the actual matmul.
         The win this measures is bandwidth, not compute.
 
-  int8  bitsandbytes on-the-fly INT8 quantization (quantization="bitsandbytes",
-        load_format="bitsandbytes"). Same idea, 8-bit storage instead of 8-bit
-        float.
+  int8  vLLM's on-the-fly INT8 weight-only quantization
+        (quantization="int8_per_channel_weight_only"). Same idea as fp8:
+        half the storage bytes, upconvert for the matmul.
 
-This script uses its own image (adds bitsandbytes), separate from the
-vllm-only image the rest of the repo shares -- consistent with wk09/10, which
-already diverged (Python 3.12) for their own reasons. It still mounts the
-shared hf-cache volume, so the fp16 checkpoint download is free.
+        Originally tried as quantization="bitsandbytes" -- vLLM v0.28 (the
+        version pinned by every script in this repo) rejects that string
+        outright: "Unknown quantization method: bitsandbytes. Must be one
+        of [...]". bitsandbytes has been dropped from vLLM's supported
+        quantization methods in this version; int8_per_channel_weight_only
+        is the current equivalent for on-the-fly weight-only INT8.
+
+This script previously added bitsandbytes to its image; that dependency is
+gone now that the built-in method covers it, so it shares the plain
+vllm-only image the rest of the repo uses. It mounts the shared hf-cache
+volume, so the fp16 checkpoint download is free.
 """
 import modal
 import time
@@ -36,7 +43,7 @@ image = (
         "nvidia/cuda:12.4.0-devel-ubuntu22.04",
         add_python="3.11",
     )
-    .pip_install("vllm", "bitsandbytes")
+    .pip_install("vllm")
 )
 
 HF_CACHE = modal.Volume.from_name("hf-cache", create_if_missing=True)
@@ -69,7 +76,7 @@ PROMPTS = [
 CONFIGS = {
     "fp16": {},
     "fp8": {"quantization": "fp8"},
-    "int8_bnb": {"quantization": "bitsandbytes", "load_format": "bitsandbytes"},
+    "int8_woq": {"quantization": "int8_per_channel_weight_only"},
 }
 
 
@@ -148,7 +155,7 @@ def collect():
 @app.local_entrypoint()
 def main():
     import os
-    only = os.environ.get("QUANT_ONLY")     # fp16 | fp8 | int8_bnb
+    only = os.environ.get("QUANT_ONLY")     # fp16 | fp8 | int8_woq
     todo = [k for k in CONFIGS if not only or k == only]
 
     for key in todo:
