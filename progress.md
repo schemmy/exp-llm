@@ -20,7 +20,7 @@ Convention: one line per week. Mark ✅ done, 🟡 partial, ❌ skipped. Add a l
 | 8  | 10-18 → 10-24 | Speculative decoding toggle | ✅ | acceptance rate 是主变量：copy 任务 2.78x (b=1) / 2.38x (b=16)，novel 任务 1.13x / **0.85x 净亏**。draft model 在 vLLM V1 不受支持 |
 | 9  | 10-25 → 10-31 | Tensor parallelism: TP=1 vs 2 vs 4 | ✅ | TP=2 1.55x / TP=4 2.16x（效率 75% / 54%，跨 batch 恒定）；**每卡吞吐反而下降**——TP 买延迟不买性价比；KV 容量 1.05M→5.14M tokens |
 | 10 | 11-01 → 11-07 | MoE inference + expert parallelism | ✅ | **MoE 优势随 batch 蒸发**：batch=1 达小稠密速度 67%，batch=32 只剩 6%——token 被打散到 60 个专家，`M=32` 碎成 60 个 `M≈2`。**多卡在 batch=32 是负收益**：TP=2 0.84x、+EP 0.56x（对比稠密模型 TP=2 是 1.53x）。GEMM 已经太小时，加并行只会更糟 |
-| 11 | 11-08 → 11-14 | INT8 / FP8 quantization | ☐ | |
+| 11 | 11-08 → 11-14 | Roofline ridge point + CUDA graph + MFU/MBU + INT8/FP8 | 🟡 | Roofline+graph 完成：**CUDA graph 2.69x@b1**（原估算 1.2x 太保守，漏算了 PyTorch eager 分发开销，只算了 kernel launch）；脊点预测 M≈153 落在实测 128(64.6%)-256(43.1%) 之间；MFU 封顶 ~51-52%（batch 256→512 吞吐反降，确认撞到算力天花板）。量化 (Task 2) 待跑 |
 | 12 | 11-15 → 11-21 | INT4 quantization + tradeoff table | ☐ | |
 | 13 | 11-22 → 11-28 | Blog #1 draft + repo README | ☐ | |
 | 14 | 11-29 → 12-05 | **Publish Blog #1** | ☐ | |
