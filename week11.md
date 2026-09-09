@@ -229,21 +229,61 @@ attention、norm、采样这些非矩阵乘的开销，加上 tensor core 永远
 三个 batch 点特意卡在脊点两侧：batch=1（带宽瓶颈区）、batch=32（仍在带宽瓶颈区，
 Wk 9 的参照点）、batch=256（预测已过脊点 M≈153，转为算力瓶颈）。
 
-| 精度 | 权重体积 | batch=1 | batch=32 | batch=256 |
+| 精度 | 权重体积* | batch=1 | batch=32 | batch=256 |
 |------|---------|---------|----------|-----------|
-| fp16 | 14.2 GiB | | | |
-| FP8（存储量化，A100 无原生 FP8 tensor core） | | | | |
-| INT8（bitsandbytes） | | | | |
+| fp16 | 14.2 GiB | 93.8 | 2,835.1 | 10,659.4 |
+| FP8（存储量化，A100 无原生 FP8 tensor core） | 14.2 GiB* | 146.1 | 4,270.3 | 8,907.0 |
+| INT8（bitsandbytes） | | 未跑成，见下 | | |
 
-加速比（相对 fp16，预测从左到右递减）：
+*权重体积两行相同不是巧合，是测量方法的局限：脚本统计的是磁盘上 safetensors 文件大小，
+而 vLLM 的 `quantization="fp8"` 是**加载时动态量化**——下载下来的 checkpoint 本来就是 fp16，
+量化发生在读进 GPU 显存**之后**。所以这一列量的是下载体积，不是显存占用，
+没能验证"权重字节真的减半了"这个前提本身。真要测显存占用，会撞上 Wk 10 那个老问题
+（`torch.cuda.memory_allocated()` 读的是父进程，模型权重住在 EngineCore 子进程里）。
+
+加速比（相对 fp16）：
 
 | 精度 | batch=1 | batch=32 | batch=256 |
 |------|---------|----------|-----------|
-| FP8 | | | |
-| INT8 | | | |
+| FP8 | **1.56x** | **1.51x** | **0.84x（净亏）** |
 
-输出质量抽查（同一个 greedy prompt，肉眼看有没有明显退化）：
+---
 
-- fp16:
-- fp8:
-- int8:
+## 发现：符号反转的位置精确对上脊点
+
+**这是本周最干净的一次验证。** batch=32（fp16 侧 MBU 66.9%，仍在带宽区）加速 1.51x；
+batch=256（fp16 侧 MFU 已到 51.66%，稳居算力区）净亏 0.84x。反转恰好卡在
+roofline_sweep 测出的脊点区间（batch 128-256）两侧。
+
+**带宽区**（batch=1、32）：省一半权重字节，换回约 1.5x——不到理论 2x，
+因为 A100 无原生 FP8 tensor core，实际计算前要把 fp8 反量化回 fp16，
+这部分开销削掉了一截理论收益。
+
+**算力区**（batch=256）：带宽早就不是瓶颈，省字节没有任何收益，
+但反量化那份计算开销**仍然要付**——纯支出、零回报，于是变成净亏。
+
+**这条把整周串起来了**：CUDA graph 省的是"发射开销"，量化省的是"搬运字节"，
+两者的收益都随算术强度（batch）单调变化，只是量化会**过头到变成负数**——
+CUDA graph 从没让你变慢，量化会。这是二者本质的区别：CUDA graph 消除的是纯浪费，
+量化是拿"反量化的固定成本"去换"搬运的可变成本"，一旦可变成本已经不是瓶颈，
+这笔交易就倒贴。
+
+### 输出质量抽查
+
+两个版本的措辞完全不同——但**这是预期行为，不是退化的信号**。
+Greedy 解码在给定权重下是确定的，但 fp8 量化改变了权重的具体数值，
+所以贪心路径合法地走向了不同（但同样通顺、同样正确）的续写：
+
+> **[fp16]** "A hash table is a data structure that stores key-value pairs and uses a hash function to compute an index into an array of buckets or slots..."
+> **[fp8]** "A hash table is a data structure that implements an associative array abstract data type, a structure that can map keys to values. It uses a hash fun..."
+
+两句话都语法正确、定义准确，只是切入角度不同。**没有看到胡言乱语、重复或截断这类真正的退化信号**——量化没有破坏这个模型。
+
+### INT8（bitsandbytes）未跑成
+
+三个配置里唯独这个没进最终汇总表，脚本应该在跑之前打印过 `!!! int8_bnb failed: ...`，
+但没截到那段输出。待办：单独重跑拿错误信息——
+
+```bash
+QUANT_ONLY=int8_bnb modal run --detach experiments/wk11_roofline/quant_compare.py
+```
