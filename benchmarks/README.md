@@ -4,7 +4,58 @@ Reproducible benchmarks for LLM serving on a single GPU.
 Comparing HuggingFace transformers baseline vs vLLM with continuous
 batching, PagedAttention, prefix caching, and quantization.
 
-**Status**: Week 10 of 14 — MoE and expert parallelism complete.
+**Status**: Week 11 of 14 — roofline, CUDA graph, and quantization complete.
+
+## Roofline Ridge Point + CUDA Graph + MFU/MBU (Week 11)
+
+Qwen2.5-7B-Instruct, A100-80GB, fp16, 256 output tokens. Predicted ridge point
+(peak FLOPS / peak bandwidth = 312 TFLOPS / 2039 GB/s ≈ 153) against a batch
+sweep with and without CUDA graphs:
+
+| batch | tok/s (graph) | MFU | MBU | tok/s (eager) | graph gain | % of linear |
+|-------|---------------|-----|-----|---------------|-----------|-------------|
+| 1 | 95.9 | 0.47% | 71.6% | 35.6 | **2.69x** | 100.0% |
+| 32 | 2,866.5 | 13.98% | 66.9% | 1,054.7 | 2.72x | 93.4% |
+| 128 | 7,924.2 | 38.66% | 46.2% | 3,762.1 | 2.11x | 64.6% |
+| 256 | 10,589.8 | **51.66%** | 30.9% | 6,989.6 | 1.52x | 43.1% |
+| 512 | 10,531.5 | 51.37% | 15.4% | 6,437.9 | 1.64x | 21.5% |
+
+*CUDA graphs give 2.69x at batch=1, decaying as batch grows — launch and
+Python-dispatch overhead is roughly fixed per step, so it matters less as
+per-step compute grows. (The pre-run estimate of ~1.2x only accounted for raw
+CUDA launch time and missed PyTorch's eager dispatch overhead, the larger
+term graphs also eliminate.)*
+
+*The predicted ridge (M≈153) lands between the measured 64.6%-of-linear point
+(batch=128) and 43.1%-of-linear point (batch=256) — a reasonable match for a
+single-GEMM approximation that ignores attention's independent memory-bound
+behavior. Cleaner confirmation: throughput actually dips slightly from
+batch=256 to batch=512 while MFU plateaus at ~51-52%, the real achievable
+compute ceiling on this stack (not the theoretical 100%).*
+
+## Quantization: FP8 and INT8 (Week 11)
+
+Same model/hardware, batch points chosen to straddle the ridge (1 and 32 =
+bandwidth-bound, 256 = compute-bound):
+
+| Precision | batch=1 | batch=32 | batch=256 |
+|-----------|---------|----------|-----------|
+| fp16 (reference) | 93.8 | 2,835.1 | 10,659.4 |
+| **FP8** | 146.1 (**1.56x**) | 4,270.3 (**1.51x**) | 8,907.0 (**0.84x, net loss**) |
+| **INT8** (`int8_per_channel_weight_only`) | 96.7 (1.03x) | 2,922.4 (1.03x) | 11,297.1 (1.06x) |
+
+*FP8's win-to-loss crossover lands exactly between batch=32 and batch=256,
+matching the ridge measured above: halving weight bytes pays off while
+bandwidth-bound, and becomes pure dequantization overhead with zero offsetting
+benefit once compute-bound. A100 lacks native FP8 tensor cores (sm80), so even
+the bandwidth-side win falls short of the theoretical 2x.*
+
+*INT8 barely moves the needle anywhere — not even in the clearly
+bandwidth-bound batch=1 region where FP8 got 1.56x. Halving stored bytes only
+pays off if there's an efficient kernel path that actually reduces bytes moved
+per step; this particular INT8 backend apparently doesn't have one on this
+stack. (`bitsandbytes`, the originally planned method, is no longer a valid
+vLLM quantization option as of v0.28.)*
 
 ## MoE vs Dense (Week 10)
 

@@ -655,8 +655,8 @@
         <tr>
           <td>量化 <span style="color:var(--faint);font-family:var(--mono);font-size:11px">Wk 11–12</span></td>
           <td><span class="tag dc">decode</span></td>
-          <td>权重体积 → 直接砍带宽开销</td>
-          <td>待测</td>
+          <td>权重体积 → 砍带宽开销，前提是有高效 kernel 承接</td>
+          <td>FP8 带宽区 1.5x／算力区 0.84x 净亏；INT8 几乎零加速 (1.0x)</td>
         </tr>
       </tbody>
     </table>
