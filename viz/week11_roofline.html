@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roofline 与量化的分水岭</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ground:#0E141B;
+    --surface:#161F2A;
+    --surface-2:#1E2936;
+    --line:#2A3846;
+    --line-soft:#213040;
+    --text:#DCE5EE;
+    --dim:#8496A8;
+    --faint:#5D7188;
+
+    /* Same semantic split as viz/phase1.html: amber = compute axis,
+       blue = bandwidth axis. Kept identical across both pages on purpose --
+       this page is a companion piece, not a new visual language. */
+    --compute:#F0883E;
+    --compute-soft:#5A3A1E;
+    --bandwidth:#4CA6E0;
+    --bandwidth-soft:#1B354A;
+    --measured:#B98BE0;
+    --hit:#56D68A;
+    --hit-soft:#1C3E2C;
+    --reject:#E05C5C;
+    --reject-soft:#3E1E1E;
+    --neutral:#3A4756;
+
+    --sans:"IBM Plex Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --display:"Archivo","IBM Plex Sans","PingFang SC","Hiragino Sans GB",sans-serif;
+    --mono:"IBM Plex Mono","SF Mono",Menlo,monospace;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:var(--ground);
+    color:var(--text);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:980px;margin:0 auto;padding:0 24px}
+
+  header{
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#111A24 0%,var(--ground) 100%);
+    padding:52px 0 36px;
+  }
+  .eyebrow{
+    font-family:var(--mono);font-size:11px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--faint);margin:0 0 14px;
+  }
+  h1{
+    font-family:var(--display);font-weight:800;
+    font-size:clamp(28px,4.6vw,44px);letter-spacing:-.02em;line-height:1.1;
+    margin:0 0 16px;text-wrap:balance;
+  }
+  .lede{max-width:64ch;color:var(--dim);font-size:16.5px;margin:0}
+  .lede b{color:var(--text);font-weight:500}
+
+  .sec{padding:52px 0;border-bottom:1px solid var(--line-soft)}
+  .sec:last-of-type{border-bottom:0}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:6px;flex-wrap:wrap}
+  .sec-num{
+    font-family:var(--mono);font-size:12px;font-weight:600;
+    color:var(--ground);background:var(--dim);padding:2px 8px;
+    border-radius:3px;letter-spacing:.06em;
+  }
+  h2{
+    font-family:var(--display);font-weight:700;
+    font-size:clamp(21px,3vw,27px);letter-spacing:-.01em;margin:0;text-wrap:balance;
+  }
+  .sec-sub{color:var(--dim);max-width:66ch;margin:12px 0 26px}
+  .sec-sub code{
+    font-family:var(--mono);font-size:.9em;background:var(--surface-2);
+    padding:1px 5px;border-radius:3px;color:var(--text);
+  }
+
+  .stage{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:8px;padding:22px 22px 18px;overflow-x:auto;
+  }
+
+  canvas{display:block;width:100%;height:auto}
+
+  .legend{
+    display:flex;gap:20px;flex-wrap:wrap;margin-top:16px;
+    padding-top:14px;border-top:1px solid var(--line-soft);
+  }
+  .legend span{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .lg{width:18px;height:0;flex:none}
+  .lg.solid-thin{border-top:1.5px solid currentColor}
+  .lg.dashed{border-top:2.5px dashed currentColor}
+  .lg.solid-thick{border-top:3px solid currentColor}
+  .lg-dot{width:9px;height:9px;border-radius:50%;flex:none}
+
+  .readout{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:16px}
+  .rd{background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:13px 15px}
+  .rd-k{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+  .rd-v{font-family:var(--mono);font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.2}
+  .rd-n{font-size:11px;color:var(--faint);margin-top:4px}
+  .rd.good .rd-v{color:var(--hit)}
+  .rd.bad .rd-v{color:var(--reject)}
+
+  .measured-box{
+    margin-top:18px;padding:15px 17px;background:var(--surface-2);
+    border-left:2px solid var(--measured);border-radius:0 6px 6px 0;
+  }
+  .measured-box h4{
+    font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--measured);margin:0 0 9px;
+  }
+  .measured-box p{margin:0;font-size:13.5px;color:var(--dim)}
+  .measured-box p + p{margin-top:8px}
+  .measured-box b{color:var(--text);font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600}
+
+  /* --- quant bar chart --- */
+  .qchart{display:flex;justify-content:space-around;align-items:flex-end;height:260px;padding:0 8px 30px;position:relative}
+  .qchart::before{
+    content:"";position:absolute;left:8px;right:8px;
+    top:var(--baseline-top,50%);height:1px;background:var(--faint);
+    border-top:1px dashed var(--faint);
+  }
+  .qgroup{display:flex;flex-direction:column;align-items:center;gap:8px;flex:1;max-width:160px}
+  .qbars{display:flex;gap:8px;align-items:flex-end;height:220px;position:relative;width:100%;justify-content:center}
+  .qbar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;width:46px}
+  .qbar{width:100%;border-radius:4px 4px 0 0;position:relative;min-height:2px}
+  .qbar-label{font-family:var(--mono);font-size:11px;font-weight:600;margin-bottom:6px;font-variant-numeric:tabular-nums}
+  .qgroup-label{font-family:var(--mono);font-size:12px;color:var(--dim);margin-top:2px}
+  .qgroup-sub{font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .qlegend{display:flex;justify-content:center;gap:22px;margin-top:4px}
+  .qlegend span{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .qsw{width:11px;height:11px;border-radius:2px;flex:none}
+
+  footer{padding:36px 0 60px;color:var(--faint);font-size:13px}
+  footer code{font-family:var(--mono);font-size:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <p class="eyebrow">Week 11 · Qwen2.5-7B-Instruct · A100 80GB · fp16 baseline</p>
+    <h1>Roofline 与量化的分水岭</h1>
+    <p class="lede">
+      一次 batch sweep（1→512），四件事共用同一根轴——算术强度。
+      这张图把 CUDA graph、脊点预测、MFU/MBU、还有 FP8/INT8 量化的胜负，
+      全部叠进<b>同一个坐标系</b>看。
+    </p>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section class="sec" id="roofline">
+  <div class="sec-head">
+    <span class="sec-num">01</span>
+    <h2>Roofline：吞吐撞上算力天花板的地方</h2>
+  </div>
+  <p class="sec-sub">
+    横轴是算术强度（对 decode 这种权重固定型 GEMM，它恰好等于 batch size）。
+    纵轴是实际算力（TFLOPS）。两条细线是 A100 的理论上限——
+    <span style="color:var(--bandwidth)">带宽线</span>和
+    <span style="color:var(--compute)">算力线</span>相交的地方就是理论脊点 M≈153。
+    两条粗虚线是<b>这套系统实际能摸到的天花板</b>（约 72% MBU、约 52% MFU）——
+    紫色的实测点几乎贴着它走。
+  </p>
+
+  <div class="stage">
+    <canvas id="roofline-canvas" width="900" height="480"></canvas>
+    <div class="legend">
+      <span><i class="lg solid-thin" style="color:var(--bandwidth)"></i>理论带宽线（100% MBU）</span>
+      <span><i class="lg solid-thin" style="color:var(--compute)"></i>理论算力线（100% MFU，312 TFLOPS）</span>
+      <span><i class="lg dashed" style="color:var(--bandwidth)"></i>实测带宽天花板（~72% MBU）</span>
+      <span><i class="lg dashed" style="color:var(--compute)"></i>实测算力天花板（~52% MFU）</span>
+      <span><i class="lg-dot" style="background:var(--measured)"></i>实测吞吐（7 个 batch 点）</span>
+    </div>
+  </div>
+
+  <div class="readout">
+    <div class="rd">
+      <div class="rd-k">理论脊点</div>
+      <div class="rd-v">M ≈ 153</div>
+      <div class="rd-n">312 TFLOPS / 2039 GB/s</div>
+    </div>
+    <div class="rd">
+      <div class="rd-k">实测转折区间</div>
+      <div class="rd-v">128–256</div>
+      <div class="rd-n">64.6% → 43.1% of linear</div>
+    </div>
+    <div class="rd bad">
+      <div class="rd-k">实测算力天花板</div>
+      <div class="rd-v">~52% MFU</div>
+      <div class="rd-n">不是理论的 100%</div>
+    </div>
+  </div>
+
+  <div class="measured-box">
+    <h4>怎么读这张图</h4>
+    <p>紫色点从 batch=1 开始几乎贴着蓝色虚线（带宽天花板）往右上爬——
+      这段是<b>免费的</b>：多算的 token 不需要多搬权重。</p>
+    <p>过了 batch≈128，点开始脱离蓝线、转向橙色虚线（算力天花板）靠拢，
+      到 batch=256 基本贴住，batch=512 时紧贴着橙线甚至<b>轻微下滑</b>——
+      这就是"加 batch 已经不再有任何帮助"的视觉证据。</p>
+    <p>两条虚线都在理论线<b>下方</b>——真实硬件从来摸不到 100%，
+      这个约 <b>20-50%</b> 的落差本身就是这周最该记住的数字之一。</p>
+  </div>
+</section>
+
+<section class="sec" id="cudagraph">
+  <div class="sec-head">
+    <span class="sec-num">02</span>
+    <h2>CUDA Graph：固定开销，随 batch 被摊薄</h2>
+  </div>
+  <p class="sec-sub">
+    横轴和上图对齐（同样是 batch）。纵轴是 <code>graph / eager</code> 的吞吐比。
+    launch 开销和 Python 分发开销是<b>每步固定的</b>，batch 越大、每步计算越多，
+    这部分固定成本占比就越小——所以收益曲线单调下降。
+  </p>
+
+  <div class="stage">
+    <canvas id="graph-canvas" width="900" height="260"></canvas>
+    <div class="legend">
+      <span><i class="lg-dot" style="background:var(--measured)"></i>graph 相对 eager 的加速比</span>
+      <span><i class="lg dashed" style="color:var(--faint)"></i>1.0x（无收益基线）</span>
+    </div>
+  </div>
+
+  <div class="measured-box">
+    <h4>预测被打脸的地方</h4>
+    <p>原估算：launch 开销约 300-400 次 × 5-10µs ≈ 2ms，TPOT 10.3ms 里占约 20%，
+      预期收益 <b>~1.2x</b>。</p>
+    <p>实测 batch=1 是 <b>2.69x</b>——差了一个数量级。漏算的是 PyTorch eager 模式下
+      Python 分发层的开销，这部分通常比纯 CUDA launch 大一个数量级，
+      CUDA graph 把这两层都省掉了。</p>
+  </div>
+</section>
+
+<section class="sec" id="quant">
+  <div class="sec-head">
+    <span class="sec-num">03</span>
+    <h2>量化：FP8 精确踩中脊点翻脸，INT8 全程没上桌</h2>
+  </div>
+  <p class="sec-sub">
+    三个 batch 点故意卡在脊点两侧：1、32 在带宽区，256 已过脊点、在算力区。
+    条形高于 1.0x（虚线）是赚，低于是亏。
+  </p>
+
+  <div class="stage">
+    <div class="qchart" style="--baseline-top:38%">
+      <div class="qgroup">
+        <div class="qbars">
+          <div class="qbar-col">
+            <div class="qbar-label" style="color:var(--hit)">1.56x</div>
+            <div class="qbar" style="height:150px;background:var(--hit)"></div>
+          </div>
+          <div class="qbar-col">
+            <div class="qbar-label" style="color:var(--neutral)">1.03x</div>
+            <div class="qbar" style="height:100px;background:var(--neutral)"></div>
+          </div>
+        </div>
+        <div class="qgroup-label">batch = 1</div>
+        <div class="qgroup-sub">带宽区</div>
+      </div>
+      <div class="qgroup">
+        <div class="qbars">
+          <div class="qbar-col">
+            <div class="qbar-label" style="color:var(--hit)">1.51x</div>
+            <div class="qbar" style="height:146px;background:var(--hit)"></div>
+          </div>
+          <div class="qbar-col">
+            <div class="qbar-label" style="color:var(--neutral)">1.03x</div>
+            <div class="qbar" style="height:100px;background:var(--neutral)"></div>
+          </div>
+        </div>
+        <div class="qgroup-label">batch = 32</div>
+        <div class="qgroup-sub">带宽区</div>
+      </div>
+      <div class="qgroup">
+        <div class="qbars">
+          <div class="qbar-col">
+            <div class="qbar-label" style="color:var(--reject)">0.84x</div>
+            <div class="qbar" style="height:81px;background:var(--reject)"></div>
+          </div>
+          <div class="qbar-col">
+            <div class="qbar-label" style="color:var(--neutral)">1.06x</div>
+            <div class="qbar" style="height:103px;background:var(--neutral)"></div>
+          </div>
+        </div>
+        <div class="qgroup-label">batch = 256</div>
+        <div class="qgroup-sub">算力区</div>
+      </div>
+    </div>
+    <div class="qlegend">
+      <span><i class="qsw" style="background:var(--hit)"></i>FP8 · 赚</span>
+      <span><i class="qsw" style="background:var(--reject)"></i>FP8 · 亏</span>
+      <span><i class="qsw" style="background:var(--neutral)"></i>INT8 · 全程原地踏步</span>
+    </div>
+  </div>
+
+  <div class="measured-box">
+    <h4>两条量化路线，两种命运</h4>
+    <p><b>FP8</b> 的加速比精确在 batch=32 → batch=256 之间翻脸（1.51x → 0.84x），
+      正好卡在上面 roofline 图测出的转折区间（128-256）——省字节在带宽区能兑现，
+      在算力区只剩反量化的纯支出。</p>
+    <p><b>INT8</b>（<code>int8_per_channel_weight_only</code>）三个点全部趴在 1.0x 附近，
+      连"净亏"的资格都没混上，因为它压根没赚到过。同样是"减字节"，
+      没有高效 kernel 路径承接就只是数字游戏——这是本周最反直觉的一条。</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="wrap">
+  <p>
+    数据来自 <code>week11.md</code> / <code>benchmarks/README.md</code> ·
+    Qwen2.5-7B-Instruct，A100-80GB，fp16，vLLM v0.28 ·
+    可复现：<code>modal run experiments/wk11_roofline/*.py</code>
+  </p>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---- shared data ----
+  const PEAK_FLOPS = 312;      // TFLOPS
+  const PEAK_BW = 2.039;       // TFLOP/s-equivalent per unit AI (2039 GB/s / 1000)
+  const RIDGE = PEAK_FLOPS / PEAK_BW; // ~153
+
+  const ACHIEVED_MBU = 0.727;  // measured ceiling (batch=8)
+  const ACHIEVED_MFU = 0.5166; // measured ceiling (batch=256)
+
+  const POINTS = [
+    {batch: 1,   mfu: 0.47,  mbu: 71.6},
+    {batch: 8,   mfu: 3.80,  mbu: 72.7},
+    {batch: 32,  mfu: 13.98, mbu: 66.9},
+    {batch: 64,  mfu: 25.87, mbu: 61.9},
+    {batch: 128, mfu: 38.66, mbu: 46.2},
+    {batch: 256, mfu: 51.66, mbu: 30.9},
+    {batch: 512, mfu: 51.37, mbu: 15.4},
+  ].map(p => ({...p, tflops: p.mfu / 100 * PEAK_FLOPS}));
+
+  const GRAPH_GAIN = [
+    {batch: 1, gain: 2.69}, {batch: 8, gain: 2.93}, {batch: 32, gain: 2.72},
+    {batch: 64, gain: 2.54}, {batch: 128, gain: 2.11}, {batch: 256, gain: 1.52},
+    {batch: 512, gain: 1.64},
+  ];
+
+  const css = getComputedStyle(document.documentElement);
+  const col = name => css.getPropertyValue(name).trim();
+  const COLORS = {
+    bandwidth: col('--bandwidth'), compute: col('--compute'),
+    measured: col('--measured'), faint: col('--faint'),
+    line: col('--line'), text: col('--text'), dim: col('--dim'),
+  };
+
+  function setupCanvas(canvas){
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.getAttribute('width'), cssH = canvas.getAttribute('height');
+    canvas.width = cssW * dpr; canvas.height = cssH * dpr;
+    canvas.style.width = cssW + 'px'; canvas.style.height = cssH + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    return ctx;
+  }
+
+  // ================= ROOFLINE CHART =================
+  (function roofline(){
+    const canvas = document.getElementById('roofline-canvas');
+    const W = 900, H = 480;
+    const ctx = setupCanvas(canvas);
+
+    const pad = {left: 56, right: 24, top: 20, bottom: 44};
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+
+    const xMin = 0.6, xMax = 900;   // arithmetic intensity (== batch)
+    const yMin = 0.6, yMax = 420;   // TFLOPS
+
+    const lx = v => Math.log10(v);
+    const px = x => pad.left + (lx(x) - lx(xMin)) / (lx(xMax) - lx(xMin)) * plotW;
+    const py = y => pad.top + plotH - (lx(y) - lx(yMin)) / (lx(yMax) - lx(yMin)) * plotH;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // grid
+    ctx.strokeStyle = COLORS.line;
+    ctx.lineWidth = 1;
+    ctx.font = '11px "IBM Plex Mono", monospace';
+    ctx.fillStyle = COLORS.faint;
+    [1, 10, 100].forEach(v => {
+      if (v < xMin || v > xMax) return;
+      const x = px(v);
+      ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + plotH); ctx.stroke();
+      ctx.textAlign = 'center';
+      ctx.fillText(v, x, pad.top + plotH + 18);
+    });
+    [1, 10, 100].forEach(v => {
+      if (v < yMin || v > yMax) return;
+      const y = py(v);
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + plotW, y); ctx.stroke();
+      ctx.textAlign = 'right';
+      ctx.fillText(v, pad.left - 8, y + 4);
+    });
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = COLORS.dim;
+    ctx.font = '11px "IBM Plex Mono", monospace';
+    ctx.fillText('算术强度 (FLOP/Byte, == batch size) →', pad.left + plotW / 2, H - 6);
+    ctx.save();
+    ctx.translate(16, pad.top + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('实际算力 (TFLOPS) →', 0, 0);
+    ctx.restore();
+
+    // theoretical roofs
+    function drawLine(fn, color, width, dash){
+      ctx.strokeStyle = color; ctx.lineWidth = width;
+      ctx.setLineDash(dash || []);
+      ctx.beginPath();
+      let started = false;
+      for (let lxv = lx(xMin); lxv <= lx(xMax); lxv += 0.02) {
+        const x = Math.pow(10, lxv);
+        const y = Math.min(Math.max(fn(x), yMin), yMax);
+        const X = px(x), Y = py(y);
+        if (!started) { ctx.moveTo(X, Y); started = true; } else { ctx.lineTo(X, Y); }
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // theoretical: memory roof = x * PEAK_BW ; compute roof = PEAK_FLOPS
+    drawLine(x => x * PEAK_BW, COLORS.bandwidth, 1.4, []);
+    drawLine(() => PEAK_FLOPS, COLORS.compute, 1.4, []);
+    // achieved: memory roof * MBU ; compute roof * MFU
+    drawLine(x => x * PEAK_BW * ACHIEVED_MBU, COLORS.bandwidth, 2.6, [7, 5]);
+    drawLine(() => PEAK_FLOPS * ACHIEVED_MFU, COLORS.compute, 2.6, [7, 5]);
+
+    // ridge marker
+    const rx = px(RIDGE);
+    ctx.strokeStyle = COLORS.faint; ctx.lineWidth = 1; ctx.setLineDash([2, 4]);
+    ctx.beginPath(); ctx.moveTo(rx, pad.top); ctx.lineTo(rx, pad.top + plotH); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = COLORS.dim;
+    ctx.font = '11px "IBM Plex Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('脊点 M≈153', rx + 6, pad.top + 14);
+
+    // measured curve + points
+    ctx.strokeStyle = COLORS.measured; ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    POINTS.forEach((p, i) => {
+      const X = px(p.batch), Y = py(p.tflops);
+      if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+    });
+    ctx.stroke();
+
+    POINTS.forEach(p => {
+      const X = px(p.batch), Y = py(p.tflops);
+      ctx.fillStyle = COLORS.measured;
+      ctx.beginPath(); ctx.arc(X, Y, 4.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = COLORS.ground || '#0E141B'; ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.fillStyle = COLORS.text;
+      ctx.font = '10.5px "IBM Plex Mono", monospace';
+      const label = `b=${p.batch}`;
+      // batch=256 and 512 sit close together on the log axis once the curve
+      // flattens; put 512's label below the point so it doesn't collide with
+      // 256's label above it.
+      if (p.batch >= 512) { ctx.textAlign = 'right'; ctx.fillText(label, X - 6, Y + 16); }
+      else { ctx.textAlign = 'left'; ctx.fillText(label, X + 7, Y - 8); }
+    });
+  })();
+
+  // ================= CUDA GRAPH GAIN CHART =================
+  (function graphGain(){
+    const canvas = document.getElementById('graph-canvas');
+    const W = 900, H = 260;
+    const ctx = setupCanvas(canvas);
+
+    const pad = {left: 50, right: 24, top: 16, bottom: 34};
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+
+    const xMin = 0.6, xMax = 900;
+    const yMin = 0.8, yMax = 3.2;
+
+    const lx = v => Math.log10(v);
+    const px = x => pad.left + (lx(x) - lx(xMin)) / (lx(xMax) - lx(xMin)) * plotW;
+    const py = y => pad.top + plotH - (y - yMin) / (yMax - yMin) * plotH;
+
+    ctx.clearRect(0, 0, W, H);
+
+    ctx.strokeStyle = COLORS.line; ctx.lineWidth = 1;
+    ctx.font = '11px "IBM Plex Mono", monospace';
+    [1, 10, 100].forEach(v => {
+      const x = px(v);
+      ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + plotH); ctx.stroke();
+      ctx.fillStyle = COLORS.faint; ctx.textAlign = 'center';
+      ctx.fillText(v, x, pad.top + plotH + 18);
+    });
+    [1, 2, 3].forEach(v => {
+      const y = py(v);
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + plotW, y); ctx.stroke();
+      ctx.fillStyle = COLORS.faint; ctx.textAlign = 'right';
+      ctx.fillText(v + 'x', pad.left - 8, y + 4);
+    });
+
+    // baseline at 1.0x
+    ctx.strokeStyle = COLORS.faint; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(pad.left, py(1)); ctx.lineTo(pad.left + plotW, py(1)); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // filled area under the curve for visual weight
+    ctx.beginPath();
+    GRAPH_GAIN.forEach((p, i) => {
+      const X = px(p.batch), Y = py(p.gain);
+      if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+    });
+    ctx.lineTo(px(GRAPH_GAIN[GRAPH_GAIN.length - 1].batch), py(1));
+    ctx.lineTo(px(GRAPH_GAIN[0].batch), py(1));
+    ctx.closePath();
+    ctx.fillStyle = COLORS.measured + '22';
+    ctx.fill();
+
+    ctx.strokeStyle = COLORS.measured; ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    GRAPH_GAIN.forEach((p, i) => {
+      const X = px(p.batch), Y = py(p.gain);
+      if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+    });
+    ctx.stroke();
+
+    GRAPH_GAIN.forEach(p => {
+      const X = px(p.batch), Y = py(p.gain);
+      ctx.fillStyle = COLORS.measured;
+      ctx.beginPath(); ctx.arc(X, Y, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = COLORS.text;
+      ctx.font = '10.5px "IBM Plex Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(p.gain.toFixed(2) + 'x', X, Y - 11);
+    });
+  })();
+})();
+</script>
+</body>
+</html>
