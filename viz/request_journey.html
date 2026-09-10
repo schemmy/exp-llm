@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>一个请求的旅程</title>
+<title>The Journey of One Request</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -40,6 +40,23 @@
     -webkit-font-smoothing:antialiased;
   }
   .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+  /* ---------- language toggle ---------- */
+  .lang-toggle{
+    position:fixed;top:18px;right:18px;z-index:40;
+    display:flex;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:20px;padding:3px;gap:2px;
+    box-shadow:0 4px 16px rgba(0,0,0,.35);
+  }
+  .lang-toggle button{
+    font-family:var(--mono);font-size:11px;font-weight:600;
+    border:none;background:none;color:var(--faint);cursor:pointer;
+    padding:6px 12px;border-radius:16px;transition:all .15s;
+    letter-spacing:.02em;
+  }
+  .lang-toggle button:hover{color:var(--text)}
+  .lang-toggle button.active{background:var(--bandwidth-soft);color:var(--bandwidth)}
+  .lang-toggle button:focus-visible{outline:2px solid var(--bandwidth);outline-offset:2px}
 
   /* ---------- header ---------- */
   header{
@@ -130,10 +147,6 @@
     font-family:var(--mono);font-size:10px;color:var(--measured);
     letter-spacing:.06em;white-space:nowrap;
   }
-  .loop-return{
-    position:absolute;bottom:-2px;left:14px;right:14px;height:22px;
-    pointer-events:none;
-  }
 
   /* packet marker that travels along the pipeline */
   .packet{
@@ -203,7 +216,7 @@
   /* small reusable visuals */
   .qtimeline{display:flex;flex-direction:column;gap:6px}
   .qrow{display:flex;align-items:center;gap:10px}
-  .qrow-label{font-family:var(--mono);font-size:10.5px;color:var(--faint);width:74px;flex:none}
+  .qrow-label{font-family:var(--mono);font-size:10.5px;color:var(--faint);width:110px;flex:none}
   .qtrack{position:relative;flex:1;height:14px;background:var(--surface-2);border-radius:3px;overflow:hidden}
   .qseg{position:absolute;top:0;height:100%;border-radius:3px}
 
@@ -211,10 +224,12 @@
   .memcell{aspect-ratio:1;border-radius:1px;background:var(--surface-2)}
 
   .barrow{display:flex;align-items:center;gap:10px;margin:6px 0}
-  .barrow-label{font-family:var(--mono);font-size:10.5px;color:var(--faint);width:96px;flex:none}
+  .barrow-label{font-family:var(--mono);font-size:10.5px;color:var(--faint);width:150px;flex:none}
   .bartrack{flex:1;height:16px;background:var(--surface-2);border-radius:3px;overflow:hidden}
   .barfill{height:100%;border-radius:3px}
   .barval{font-family:var(--mono);font-size:11px;color:var(--text);width:64px;text-align:right;flex:none}
+
+  .mini-caption{margin:12px 0 0;font-family:var(--mono);font-size:11px;color:var(--faint)}
 
   footer{padding:40px 0 64px;color:var(--faint);font-size:13px;border-top:1px solid var(--line-soft)}
   footer a{color:var(--dim)}
@@ -227,23 +242,24 @@
 </head>
 <body>
 
+<div class="lang-toggle">
+  <button id="lang-en" type="button">EN</button>
+  <button id="lang-zh" type="button">中文</button>
+</div>
+
 <header>
   <div class="wrap">
-    <p class="eyebrow">Qwen2.5-7B-Instruct · A100 80GB · vLLM · 全部数据可复现</p>
-    <h1>一个请求的旅程</h1>
-    <p class="lede">
-      从你按下发送，到第一个字出现，再到第两百个字出现——中间发生了十二件事。
-      有的只发生一次，有的每个字都要重来一遍。<b>点下面时间线上的任意一站，
-      往下看细节；不点也行，自动播放会带你走一遍全程。</b>
-    </p>
+    <p class="eyebrow" id="t-eyebrow"></p>
+    <h1 id="t-h1"></h1>
+    <p class="lede" id="t-lede"></p>
   </div>
 </header>
 
 <div class="pipeline-wrap">
   <div class="wrap">
     <div class="pipeline-controls">
-      <button id="replay-btn">▶ 重新播放全程</button>
-      <span class="pipeline-hint">或者直接点任意一站</span>
+      <button id="replay-btn"></button>
+      <span class="pipeline-hint" id="t-hint"></span>
     </div>
     <div class="pipeline">
       <div class="track" id="track"><!-- populated by JS --></div>
@@ -255,12 +271,7 @@
 <main class="wrap" id="stages"><!-- populated by JS --></main>
 
 <footer class="wrap">
-  <p>
-    数据来自 <code>benchmarks/README.md</code>，Qwen2.5-7B-Instruct，A100-80GB，fp16，vLLM ·
-    全部实验可复现：<code>modal run experiments/wkXX_*/*.py</code> ·
-    另见 <a href="phase1.html">按主题拆解的交互图</a> 和
-    <a href="week11_roofline.html">roofline 深潜</a>
-  </p>
+  <p id="t-footer"></p>
 </footer>
 
 <script>
@@ -268,196 +279,398 @@
 "use strict";
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/* ---------------- stage definitions ---------------- */
+/* ---------------- static UI text ---------------- */
+const UI = {
+  title:      { en:"The Journey of One Request", zh:"一个请求的旅程" },
+  eyebrow:    { en:"Qwen2.5-7B-Instruct · A100 80GB · vLLM · every number is reproducible",
+                zh:"Qwen2.5-7B-Instruct · A100 80GB · vLLM · 全部数据可复现" },
+  h1:         { en:"The Journey of One Request", zh:"一个请求的旅程" },
+  lede:       { en:`From the moment you hit send to the moment the first word appears —
+                    and the two-hundredth — twelve things happen in between. Some happen
+                    once. Some happen again for every single word.
+                    <b>Click any stage on the timeline below to see the details;
+                    or don't — autoplay will walk you through the whole journey first.</b>`,
+                zh:`从你按下发送，到第一个字出现，再到第两百个字出现——中间发生了十二件事。
+                    有的只发生一次，有的每个字都要重来一遍。<b>点下面时间线上的任意一站，
+                    往下看细节；不点也行，自动播放会带你走一遍全程。</b>` },
+  replay:     { en:"▶ Replay the journey", zh:"▶ 重新播放全程" },
+  hint:       { en:"or click any stage directly", zh:"或者直接点任意一站" },
+  loopTag:    { en:"repeats once per token", zh:"每个 token 重复一次" },
+  footer:     { en:`Data from <code>benchmarks/README.md</code>, Qwen2.5-7B-Instruct, A100-80GB,
+                    fp16, vLLM · every experiment is reproducible:
+                    <code>modal run experiments/wkXX_*/*.py</code> · also see the
+                    <a href="phase1.html">topic-by-topic interactive breakdown</a> and the
+                    <a href="week11_roofline.html">roofline deep dive</a>`,
+                zh:`数据来自 <code>benchmarks/README.md</code>，Qwen2.5-7B-Instruct，A100-80GB，
+                    fp16，vLLM · 全部实验可复现：<code>modal run experiments/wkXX_*/*.py</code> ·
+                    另见 <a href="phase1.html">按主题拆解的交互图</a> 和
+                    <a href="week11_roofline.html">roofline 深潜</a>` },
+};
+
+/* ---------------- stage definitions (bilingual) ---------------- */
 const STAGES = [
   {
-    id:"arrive", label:"请求到达", kind:"io",
-    title:"一个 prompt，发往一台正在服务其他一百个人的机器",
-    tag:"每个请求一次",
-    body:`
-      <p>你的 prompt 离开客户端，落到一台 GPU 服务器上——这台卡此刻大概率正在
-      同时服务几十个甚至上百个别人的请求。它不会等你，也不会为你单独腾出时间。</p>
-      <p>接下来的每一步，都是这台共享的卡在琢磨："怎么把这条新请求塞进正在
-      发生的事情里，代价最小。"</p>`,
+    id:"arrive", kind:"io",
+    label:{ en:"Request arrives", zh:"请求到达" },
+    tag:{ en:"Once per request", zh:"每个请求一次" },
+    title:{ en:"One prompt, sent to a GPU already serving a hundred other people",
+            zh:"一个 prompt，发往一台正在服务其他一百个人的机器" },
+    body:{
+      en:`<p>Your prompt leaves the client and lands on a GPU server — one that's
+          probably already serving dozens, maybe hundreds, of other people's requests
+          right now. It won't wait for you, and it won't clear space just for you.</p>
+          <p>Every step from here on is this shared card figuring out: "how do I fit
+          this new request into what's already happening, at the least possible cost?"</p>`,
+      zh:`<p>你的 prompt 离开客户端，落到一台 GPU 服务器上——这台卡此刻大概率正在
+          同时服务几十个甚至上百个别人的请求。它不会等你，也不会为你单独腾出时间。</p>
+          <p>接下来的每一步，都是这台共享的卡在琢磨："怎么把这条新请求塞进正在
+          发生的事情里，代价最小。"</p>`,
+    },
   },
   {
-    id:"queue", label:"排队还是插队", kind:"io",
-    title:"等齐一批再一起跑，还是随到随处理？",
-    tag:"每个请求一次",
-    body:`
-      <p>最直觉的做法是攒够一批请求再一起提交——听起来像是在给 GPU 更多东西一次性处理。
-      <b>实测下来几乎是幻觉</b>：端到端吞吐几乎没变（717 → 705 tok/s），
-      但攒批期间白白流逝的等待，让 P50 延迟差了 2.6 倍。</p>
-      <p>GPU 从来不缺算力，缺的是"别让先来的人等后来的人"。让引擎随到随处理、
-      随走随补位（连续批处理），问题就解决了——不是给 GPU 更多工作，
-      是不再制造不必要的等待。</p>`,
+    id:"queue", kind:"io",
+    label:{ en:"Wait in line, or cut in?", zh:"排队还是插队" },
+    tag:{ en:"Once per request", zh:"每个请求一次" },
+    title:{ en:"Wait to fill a batch, or process it the moment it arrives?",
+            zh:"等齐一批再一起跑，还是随到随处理？" },
+    body:{
+      en:`<p>The intuitive move is to let requests queue up and submit them together —
+          it feels like handing the GPU more to chew on at once. <b>Measured, that
+          intuition is almost entirely wrong</b>: end-to-end throughput barely changed
+          (717 → 705 tok/s), but the time wasted waiting to fill the batch left median
+          latency 2.6x worse.</p>
+          <p>The GPU was never short on capacity — the problem was making early
+          arrivals wait for late ones. Let the engine admit and retire requests
+          continuously, and the fix isn't giving the GPU more work. It's removing
+          waiting that never needed to happen.</p>`,
+      zh:`<p>最直觉的做法是攒够一批请求再一起提交——听起来像是在给 GPU 更多东西一次性处理。
+          <b>实测下来几乎是幻觉</b>：端到端吞吐几乎没变（717 → 705 tok/s），
+          但攒批期间白白流逝的等待，让 P50 延迟差了 2.6 倍。</p>
+          <p>GPU 从来不缺算力，缺的是"别让先来的人等后来的人"。让引擎随到随处理、
+          随走随补位（连续批处理），问题就解决了——不是给 GPU 更多工作，
+          是不再制造不必要的等待。</p>`,
+    },
     stats:[
-      {k:"静态攒批 P50", v:"6.36s", cls:"bad"},
-      {k:"连续批处理 P50", v:"2.41s", cls:"good"},
-      {k:"吞吐差异", v:"几乎为零", cls:""},
+      { k:{en:"Static-batch P50", zh:"静态攒批 P50"}, v:"6.36s", cls:"bad" },
+      { k:{en:"Continuous-batch P50", zh:"连续批处理 P50"}, v:"2.41s", cls:"good" },
+      { k:{en:"Throughput difference", zh:"吞吐差异"}, v:{en:"nearly zero", zh:"几乎为零"}, cls:"" },
     ],
     mini:"queue",
   },
   {
-    id:"memory", label:"分配显存", kind:"io",
-    title:"没人知道这条请求会说多久，显存却要提前占位",
-    tag:"每个请求一次",
-    body:`
-      <p>每条请求都要占一块显存，记录它到目前为止生成过的全部内容（KV cache）。
-      问题是没人知道它会说 10 个字还是 1000 个字——按最坏情况预留，
-      <b>实测浪费掉 60-80% 的显存</b>，装着永远用不到的空位。</p>
-      <p>解法照搬操作系统管虚拟内存的办法：不整块预留，按 16-token 的小块按需发放，
-      物理位置随便放，靠一张表记录映射。碎片率从 60-80% 降到 &lt;4%——
-      省下的显存直接换成更多能同时服务的请求。</p>`,
+    id:"memory", kind:"io",
+    label:{ en:"Allocate memory", zh:"分配显存" },
+    tag:{ en:"Once per request", zh:"每个请求一次" },
+    title:{ en:"Nobody knows how long this reply will run, yet memory has to be reserved up front",
+            zh:"没人知道这条请求会说多久，显存却要提前占位" },
+    body:{
+      en:`<p>Every request needs a chunk of memory to hold everything it's generated so
+          far (the KV cache). The problem: nobody knows in advance whether it'll say 10
+          words or 1,000. Reserve for the worst case, every time, and <b>60-80% of that
+          memory sits wasted</b>, holding space that's probably never used.</p>
+          <p>The fix borrows straight from how an operating system pages virtual
+          memory: instead of one large reservation, hand out small fixed blocks on
+          demand, wherever they physically fit, and keep a table mapping logical
+          position to physical block. Fragmentation drops from 60-80% to under 4% —
+          and the memory that frees up becomes room for more concurrent requests.</p>`,
+      zh:`<p>每条请求都要占一块显存，记录它到目前为止生成过的全部内容（KV cache）。
+          问题是没人知道它会说 10 个字还是 1000 个字——按最坏情况预留，
+          <b>实测浪费掉 60-80% 的显存</b>，装着永远用不到的空位。</p>
+          <p>解法照搬操作系统管虚拟内存的办法：不整块预留，按 16-token 的小块按需发放，
+          物理位置随便放，靠一张表记录映射。碎片率从 60-80% 降到 &lt;4%——
+          省下的显存直接换成更多能同时服务的请求。</p>`,
+    },
     stats:[
-      {k:"碎片率（分块前）", v:"60-80%", cls:"bad"},
-      {k:"碎片率（分块后）", v:"<4%", cls:"good"},
-      {k:"batch 1→32 吞吐", v:"近线性", cls:"good"},
+      { k:{en:"Fragmentation (before paging)", zh:"碎片率（分块前）"}, v:"60-80%", cls:"bad" },
+      { k:{en:"Fragmentation (after paging)", zh:"碎片率（分块后）"}, v:"<4%", cls:"good" },
+      { k:{en:"batch 1→32 throughput", zh:"batch 1→32 吞吐"}, v:{en:"near-linear", zh:"近线性"}, cls:"good" },
     ],
     mini:"memory",
   },
   {
-    id:"prefix", label:"查缓存", kind:"io",
-    title:"这段开头，是不是已经有人问过了？",
-    tag:"每个请求一次",
-    body:`
-      <p>显存现在是按小块管理的，这带来一个额外的机会：如果这条请求的开头
-      （同一份系统提示词、同一篇被反复引用的文档）跟之前某条请求的开头
-      逐 token 完全一样，那部分根本不用重新算——直接复用已经算好的块。</p>
-      <p>32 条请求共享约 500 token 前缀的实测：命中缓存后，
-      <b>首字延迟从 829ms 降到 156ms</b>，省下的算力全部转去生成更多 token，
-      吞吐反而涨了。代价是必须逐 token 完全匹配——差一个字就全部重算。</p>`,
+    id:"prefix", kind:"io",
+    label:{ en:"Check the cache", zh:"查缓存" },
+    tag:{ en:"Once per request", zh:"每个请求一次" },
+    title:{ en:"Has someone already asked this opening before?",
+            zh:"这段开头，是不是已经有人问过了？" },
+    body:{
+      en:`<p>Now that memory is managed in small blocks, there's an extra opportunity:
+          if this request's opening (the same system prompt, the same repeatedly-cited
+          document) matches an earlier request's opening token-for-token, that part
+          never needs recomputing — just reuse the blocks that are already sitting
+          there.</p>
+          <p>Measured on 32 requests sharing a roughly 500-token prefix: after a cache
+          hit, <b>time-to-first-token drops from 829ms to 156ms</b>, and the compute
+          that used to go into re-running the prefix gets redirected into generating
+          more tokens instead — throughput actually rises. The cost is that the match
+          has to be exact, token for token; one character off and the whole prefix gets
+          recomputed.</p>`,
+      zh:`<p>显存现在是按小块管理的，这带来一个额外的机会：如果这条请求的开头
+          （同一份系统提示词、同一篇被反复引用的文档）跟之前某条请求的开头
+          逐 token 完全一样，那部分根本不用重新算——直接复用已经算好的块。</p>
+          <p>32 条请求共享约 500 token 前缀的实测：命中缓存后，
+          <b>首字延迟从 829ms 降到 156ms</b>，省下的算力全部转去生成更多 token，
+          吞吐反而涨了。代价是必须逐 token 完全匹配——差一个字就全部重算。</p>`,
+    },
     stats:[
-      {k:"首字延迟（未命中）", v:"829ms", cls:"bad"},
-      {k:"首字延迟（命中）", v:"156ms", cls:"good"},
-      {k:"加速比", v:"5.3x", cls:"good"},
+      { k:{en:"TTFT (cache miss)", zh:"首字延迟（未命中）"}, v:"829ms", cls:"bad" },
+      { k:{en:"TTFT (cache hit)", zh:"首字延迟（命中）"}, v:"156ms", cls:"good" },
+      { k:{en:"Speedup", zh:"加速比"}, v:"5.3x", cls:"good" },
     ],
     mini:"prefix",
   },
   {
-    id:"prefill", label:"Prefill", kind:"compute",
-    title:"整段 prompt 一次算完——这是全程唯一算力吃满的时刻",
-    tag:"每个请求一次 · 算力密集",
-    body:`
-      <p>没被缓存命中的那部分 prompt，现在要真正过一遍模型——一次性、
-      并行地算完所有 token，这是全程唯一一个 GPU 张量核心被真正喂饱的阶段。
-      短 prompt 的 prefill 快到几乎察觉不到；长 prompt（几千 token）的 prefill
-      可能要占掉整个请求延迟的大头。</p>
-      <p>这也是为什么短 prompt 很难把 GPU 打满——prefill 一晃而过，
-      大部分时间花在下一步：一个字一个字往外吐。</p>`,
+    id:"prefill", kind:"compute",
+    label:{ en:"Prefill", zh:"Prefill" },
+    tag:{ en:"Once per request · compute-bound", zh:"每个请求一次 · 算力密集" },
+    title:{ en:"The whole prompt gets processed at once — the one moment compute is actually the bottleneck",
+            zh:"整段 prompt 一次算完——这是全程唯一算力吃满的时刻" },
+    body:{
+      en:`<p>Whatever part of the prompt wasn't already cached now runs through the
+          model for real — all at once, in parallel, across every token. This is the
+          one phase in the whole journey where the GPU's tensor cores are actually
+          fed enough work to stay busy. A short prompt's prefill is over almost before
+          it registers; a long prompt (thousands of tokens) can dominate the entire
+          request's latency.</p>
+          <p>This is also why short prompts struggle to saturate a GPU — prefill flies
+          by, and most of the time gets spent in the next phase: producing one word at
+          a time.</p>`,
+      zh:`<p>没被缓存命中的那部分 prompt，现在要真正过一遍模型——一次性、
+          并行地算完所有 token，这是全程唯一一个 GPU 张量核心被真正喂饱的阶段。
+          短 prompt 的 prefill 快到几乎察觉不到；长 prompt（几千 token）的 prefill
+          可能要占掉整个请求延迟的大头。</p>
+          <p>这也是为什么短 prompt 很难把 GPU 打满——prefill 一晃而过，
+          大部分时间花在下一步：一个字一个字往外吐。</p>`,
+    },
   },
   {
-    id:"split", label:"这张卡装得下吗", kind:"compute",
-    title:"模型太大，一张卡放不下时会发生什么",
-    tag:"仅大模型 · 每个请求一次",
-    body:`
-      <p><b>把每一层的权重切开分给几张卡</b>：每张卡只需搬运自己那一份权重，
-      两张卡实测延迟从 10.3ms 降到 6.6ms——但每层算完要汇总，
-      这一步通信吃掉了理论收益的一部分（2 卡 1.55x，4 卡 2.16x，
-      不是 2x/4x）。更关键的是<b>每张卡的实际产出在下降</b>——
-      四张卡卖力气换来的吞吐，不如四个独立单卡实例。切卡买的是"装得下"
-      和更低延迟，不是性价比。</p>
-      <p><b>如果模型天生只用一部分参数（混合专家）</b>：显存要按全部专家算，
-      速度却只看真正用到的那几个——听起来像白捡便宜。实测在并发低时确实接近
-      白捡（达到同等小模型速度的 67%），但<b>并发一高这个优势几乎完全蒸发</b>
-      （只剩 6%）——请求被打散到几十个专家上，每个专家分到的计算量太小，
-      喂不饱张量核心。批处理是这类模型唯一吃不到的红利。</p>`,
+    id:"split", kind:"compute",
+    label:{ en:"Does it fit on one GPU?", zh:"这张卡装得下吗" },
+    tag:{ en:"Large models only · once per request", zh:"仅大模型 · 每个请求一次" },
+    title:{ en:"What happens when the model itself doesn't fit on one GPU",
+            zh:"模型太大，一张卡放不下时会发生什么" },
+    body:{
+      en:`<p><b>Slice every layer's weights across several GPUs</b>: each GPU now only
+          has to move its own share, and two GPUs measured latency dropping from
+          10.3ms to 6.6ms — but every layer needs a communication step to reassemble
+          the result, and that eats part of the theoretical gain (2 GPUs: 1.55x,
+          4 GPUs: 2.16x, not 2x/4x). More importantly, <b>throughput per GPU
+          actually falls</b> — four GPUs working hard deliver less than four
+          independent single-GPU replicas would. Splitting the model buys
+          "it fits" and lower latency, not cost efficiency.</p>
+          <p><b>If the model itself only uses a fraction of its parameters per token
+          (mixture-of-experts)</b>: memory has to account for every expert, but speed
+          should only track the few actually used — sounds like a free lunch. Measured
+          at low concurrency, it nearly is (67% of an equivalent small dense model's
+          speed). <b>But that advantage almost completely evaporates under load</b>
+          (down to 6%) — requests get scattered across dozens of experts, and each one
+          ends up with too little work to keep the tensor cores fed. Batching, the
+          lever that helped everywhere else, is the one this architecture can't
+          pull.</p>`,
+      zh:`<p><b>把每一层的权重切开分给几张卡</b>：每张卡只需搬运自己那一份权重，
+          两张卡实测延迟从 10.3ms 降到 6.6ms——但每层算完要汇总，
+          这一步通信吃掉了理论收益的一部分（2 卡 1.55x，4 卡 2.16x，
+          不是 2x/4x）。更关键的是<b>每张卡的实际产出在下降</b>——
+          四张卡卖力气换来的吞吐，不如四个独立单卡实例。切卡买的是"装得下"
+          和更低延迟，不是性价比。</p>
+          <p><b>如果模型天生只用一部分参数（混合专家）</b>：显存要按全部专家算，
+          速度却只看真正用到的那几个——听起来像白捡便宜。实测在并发低时确实接近
+          白捡（达到同等小模型速度的 67%），但<b>并发一高这个优势几乎完全蒸发</b>
+          （只剩 6%）——请求被打散到几十个专家上，每个专家分到的计算量太小，
+          喂不饱张量核心。批处理是这类模型唯一吃不到的红利。</p>`,
+    },
     stats:[
-      {k:"TP=4 加速比", v:"2.16x", cls:""},
-      {k:"TP=4 每卡吞吐", v:"↓ 到 53%", cls:"bad"},
-      {k:"MoE 高并发优势", v:"6%（vs 67% 低并发）", cls:"bad"},
+      { k:{en:"TP=4 speedup", zh:"TP=4 加速比"}, v:"2.16x", cls:"" },
+      { k:{en:"TP=4 throughput per GPU", zh:"TP=4 每卡吞吐"}, v:{en:"↓ to 53%", zh:"↓ 到 53%"}, cls:"bad" },
+      { k:{en:"MoE advantage at high concurrency", zh:"MoE 高并发优势"},
+        v:{en:"6% (vs 67% at low concurrency)", zh:"6%（vs 67% 低并发）"}, cls:"bad" },
     ],
   },
   {
-    id:"replay", label:"重放，不重发", kind:"loop",
-    title:"同样的指令序列，录一次，之后直接重放",
-    tag:"每个 token 一次",
-    body:`
-      <p>生成每个 token 要给 GPU 发几百条指令，每条都有微秒级的 CPU 开销——
-      加起来能占掉一大块本该用来等数据的时间。解法是把这串指令<b>录制成一张图</b>，
-      之后整体重放，不用每次都重新发号施令。</p>
-      <p>凭直觉估算这值多少，猜的是 20% 左右。<b>实测是 2.69x</b>——
-      漏算的是 Python 框架本身的调度开销，往往比纯指令发送更贵。</p>`,
+    id:"replay", kind:"loop",
+    label:{ en:"Replay, don't reissue", zh:"重放，不重发" },
+    tag:{ en:"Once per token", zh:"每个 token 一次" },
+    title:{ en:"Record the same instruction sequence once, then just replay it",
+            zh:"同样的指令序列，录一次，之后直接重放" },
+    body:{
+      en:`<p>Generating each token means sending the GPU hundreds of instructions,
+          each with its own microsecond-scale CPU overhead — added up, that can eat a
+          meaningful chunk of time that should have gone to waiting on data instead.
+          The fix is to <b>record that whole instruction sequence as a graph once</b>,
+          then replay it wholesale instead of reissuing every instruction from
+          scratch, every single step.</p>
+          <p>A back-of-envelope guess put the value at around 20%. <b>Measured, it was
+          2.69x</b> — the estimate missed a second, larger cost: the framework's own
+          Python-side dispatch overhead, which usually costs more than the raw
+          instruction send itself.</p>`,
+      zh:`<p>生成每个 token 要给 GPU 发几百条指令，每条都有微秒级的 CPU 开销——
+          加起来能占掉一大块本该用来等数据的时间。解法是把这串指令<b>录制成一张图</b>，
+          之后整体重放，不用每次都重新发号施令。</p>
+          <p>凭直觉估算这值多少，猜的是 20% 左右。<b>实测是 2.69x</b>——
+          漏算的是 Python 框架本身的调度开销，往往比纯指令发送更贵。</p>`,
+    },
     stats:[
-      {k:"预估收益", v:"~1.2x", cls:""},
-      {k:"实测收益（batch=1）", v:"2.69x", cls:"good"},
+      { k:{en:"Estimated gain", zh:"预估收益"}, v:"~1.2x", cls:"" },
+      { k:{en:"Measured gain (batch=1)", zh:"实测收益（batch=1）"}, v:"2.69x", cls:"good" },
     ],
   },
   {
-    id:"guess", label:"先猜，再核对", kind:"loop",
-    title:"用小模型先猜几步，大模型一次性核对",
-    tag:"每个 token 一次（有时）",
-    body:`
-      <p>生成 token 时，GPU 大部分时间在等数据，算力基本空闲。
-      既然如此，能不能先猜接下来几个字，再用一次前向传播<b>并行核对</b>
-      这些猜测？核对的成本几乎等于生成一个字的成本——反正瓶颈从来不是算，
-      是搬数据。</p>
-      <p>第一次测试只快了 8%——远低于预期。<b>换一个更容易被猜中的任务
-      （原文照抄 vs 自由改写）</b>，答案揭晓：猜没猜中，才是唯一决定成败的变量。
-      照抄任务：2.78x；自由改写任务：高并发下甚至净亏 15%。</p>`,
+    id:"guess", kind:"loop",
+    label:{ en:"Guess first, verify after", zh:"先猜，再核对" },
+    tag:{ en:"Once per token (sometimes)", zh:"每个 token 一次（有时）" },
+    title:{ en:"A small model guesses ahead; the big model verifies every guess in one pass",
+            zh:"用小模型先猜几步，大模型一次性核对" },
+    body:{
+      en:`<p>While generating tokens, the GPU spends most of its time waiting on data
+          — compute sits largely idle. So: what if something cheap guessed a few
+          tokens ahead, and the real model <b>verified all of those guesses in a
+          single forward pass</b>? Verifying costs almost the same as generating one
+          token, because the bottleneck was never the arithmetic — it was moving
+          data.</p>
+          <p>The first test came back with only an 8% speedup — far below what these
+          techniques are supposed to deliver. <b>Switching to a task the guesses are
+          more likely to land on</b> (reproduce this passage verbatim, vs. rewrite it
+          freely) revealed the real variable: whether the guess was right is the only
+          thing that decides the outcome. Verbatim copy: 2.78x. Free rewrite: a net
+          loss of 15% under heavy concurrency.</p>`,
+      zh:`<p>生成 token 时，GPU 大部分时间在等数据，算力基本空闲。
+          既然如此，能不能先猜接下来几个字，再用一次前向传播<b>并行核对</b>
+          这些猜测？核对的成本几乎等于生成一个字的成本——反正瓶颈从来不是算，
+          是搬数据。</p>
+          <p>第一次测试只快了 8%——远低于预期。<b>换一个更容易被猜中的任务
+          （原文照抄 vs 自由改写）</b>，答案揭晓：猜没猜中，才是唯一决定成败的变量。
+          照抄任务：2.78x；自由改写任务：高并发下甚至净亏 15%。</p>`,
+    },
     stats:[
-      {k:"命中率高（照抄）", v:"2.78x", cls:"good"},
-      {k:"命中率低 + 高并发", v:"0.85x 净亏", cls:"bad"},
+      { k:{en:"High hit rate (verbatim copy)", zh:"命中率高（照抄）"}, v:"2.78x", cls:"good" },
+      { k:{en:"Low hit rate + high concurrency", zh:"命中率低 + 高并发"}, v:{en:"0.85x, net loss", zh:"0.85x 净亏"}, cls:"bad" },
     ],
     mini:"guess",
   },
   {
-    id:"weights", label:"权重下线", kind:"loop compute",
-    title:"每个字都要把整个模型重新搬一遍",
-    tag:"每个 token 一次 · 带宽密集",
-    body:`
-      <p>这是全程真正的瓶颈所在：每生成一个字，都要把模型的全部权重
-      从显存搬进计算单元——对一个 140 亿字节量级的模型，这趟搬运本身
-      就要花掉每步一多半的时间，算力反而大量空闲。</p>
-      <p><b>压缩这些数字能不能省下搬运时间？</b>第一次尝试几乎交了白卷——
-      数字变小了，速度却几乎没变。原因是压缩后还要在真正计算前还原回去，
-      如果这一步没有和矩阵乘法融合在一起，省下的时间会被还原本身吃掉。
-      <b>换一条融合过的执行路径</b>，压缩到四分之一大小，直接反超——
-      比只压缩到一半的方案还快（2.2x vs 1.56x）。</p>
-      <p>这台卡真实能摸到的算力天花板，只有理论峰值的<b>约一半</b>——
-      这不是哪里没调好，是这套系统能达到的真实上限。</p>`,
+    id:"weights", kind:"loop compute",
+    label:{ en:"Weights come off the shelf", zh:"权重下线" },
+    tag:{ en:"Once per token · bandwidth-bound", zh:"每个 token 一次 · 带宽密集" },
+    title:{ en:"Every single token means moving the entire model again",
+            zh:"每个字都要把整个模型重新搬一遍" },
+    body:{
+      en:`<p>This is where the real bottleneck lives: generating each token means
+          pulling the model's entire set of weights from memory into the compute
+          units — for a model in the tens of billions of bytes, that move alone eats
+          more than half of every step's time, while compute sits largely idle.</p>
+          <p><b>Can shrinking those numbers save time moving them?</b> The first
+          attempt came back nearly empty-handed — the numbers got smaller, but speed
+          barely changed. The reason: a compressed number still has to be expanded
+          back before the real math can happen, and if that expansion isn't fused into
+          the same pass as the multiplication, the round trip eats back everything
+          the smaller size saved. <b>Switching to a properly fused execution path</b>,
+          compressed to a quarter of the original size, flipped the result entirely —
+          beating even the format that only compressed to half (2.2x vs 1.56x).</p>
+          <p>The real compute ceiling this card can reach tops out at <b>about half</b>
+          of its theoretical peak — not a tuning gap, just the real limit of this
+          stack.</p>`,
+      zh:`<p>这是全程真正的瓶颈所在：每生成一个字，都要把模型的全部权重
+          从显存搬进计算单元——对一个 140 亿字节量级的模型，这趟搬运本身
+          就要花掉每步一多半的时间，算力反而大量空闲。</p>
+          <p><b>压缩这些数字能不能省下搬运时间？</b>第一次尝试几乎交了白卷——
+          数字变小了，速度却几乎没变。原因是压缩后还要在真正计算前还原回去，
+          如果这一步没有和矩阵乘法融合在一起，省下的时间会被还原本身吃掉。
+          <b>换一条融合过的执行路径</b>，压缩到四分之一大小，直接反超——
+          比只压缩到一半的方案还快（2.2x vs 1.56x）。</p>
+          <p>这台卡真实能摸到的算力天花板，只有理论峰值的<b>约一半</b>——
+          这不是哪里没调好，是这套系统能达到的真实上限。</p>`,
+    },
     stats:[
-      {k:"权重体积（fp16）", v:"14.2 GB", cls:""},
-      {k:"压缩到 1/4 + 融合 kernel", v:"2.2x", cls:"good"},
-      {k:"压缩到 1/2，未融合", v:"~1.0x（零收益）", cls:"bad"},
-      {k:"实测算力天花板", v:"~52%（非理论 100%）", cls:"warm"},
+      { k:{en:"Weight size (fp16)", zh:"权重体积（fp16）"}, v:"14.2 GB", cls:"" },
+      { k:{en:"Compressed 1/4 + fused kernel", zh:"压缩到 1/4 + 融合 kernel"}, v:"2.2x", cls:"good" },
+      { k:{en:"Compressed 1/2, unfused", zh:"压缩到 1/2，未融合"}, v:{en:"~1.0x (no gain)", zh:"~1.0x（零收益）"}, cls:"bad" },
+      { k:{en:"Measured compute ceiling", zh:"实测算力天花板"}, v:{en:"~52% (not the theoretical 100%)", zh:"~52%（非理论 100%）"}, cls:"warm" },
     ],
     mini:"roofline",
   },
   {
-    id:"stream", label:"吐出一个字", kind:"loop",
-    title:"一个 token 完成，流回客户端",
-    tag:"每个 token 一次",
-    body:`
-      <p>这一步生成的字被加进正在生长的回复里，流式发回给你。
-      这也是延迟指标真正被测量的地方——第一个字的等待叫 TTFT，
-      之后每个字之间的间隔叫 TPOT。</p>`,
+    id:"stream", kind:"loop",
+    label:{ en:"Emit a token", zh:"吐出一个字" },
+    tag:{ en:"Once per token", zh:"每个 token 一次" },
+    title:{ en:"One token is done, streamed back to the client",
+            zh:"一个 token 完成，流回客户端" },
+    body:{
+      en:`<p>The token generated in this step gets appended to the reply that's
+          growing, and streamed back to you. This is also where the latency metrics
+          you actually feel get measured — the wait for the first word is TTFT, the
+          gap between every word after that is TPOT.</p>`,
+      zh:`<p>这一步生成的字被加进正在生长的回复里，流式发回给你。
+          这也是延迟指标真正被测量的地方——第一个字的等待叫 TTFT，
+          之后每个字之间的间隔叫 TPOT。</p>`,
+    },
     stats:[
-      {k:"首字延迟（TTFT）", v:"49-156ms", cls:"cool"},
-      {k:"逐字间隔（TPOT）", v:"~10-12ms", cls:"cool"},
+      { k:{en:"Time to first token (TTFT)", zh:"首字延迟（TTFT）"}, v:"49-156ms", cls:"cool" },
+      { k:{en:"Time per output token (TPOT)", zh:"逐字间隔（TPOT）"}, v:"~10-12ms", cls:"cool" },
     ],
   },
   {
-    id:"loopback", label:"没说完？回到上一步", kind:"loop",
-    title:"重复「重放 → 猜测 → 搬权重 → 吐字」，直到说完",
-    tag:"循环",
-    body:`
-      <p>只要回复还没结束（没遇到停止符，也没到长度上限），
-      就回到这个循环的开头，再走一遍。一条几百字的回复，
-      这四步可能要重复几百次——这也是为什么"每步省一点点"的优化
-      （重放、猜测、压缩数字）乘上几百次之后，效果会被放得很大。</p>`,
+    id:"loopback", kind:"loop",
+    label:{ en:"Not done? Back to the top", zh:"没说完？回到上一步" },
+    tag:{ en:"Loop", zh:"循环" },
+    title:{ en:"Repeat replay → guess → move weights → emit, until the reply is done",
+            zh:"重复「重放 → 猜测 → 搬权重 → 吐字」，直到说完" },
+    body:{
+      en:`<p>As long as the reply isn't finished — no stop token yet, and no length
+          limit hit — it's back to the top of this loop for another pass. A reply a
+          few hundred words long might repeat these four steps a few hundred times —
+          which is exactly why optimizations that save "just a little" per step
+          (replay, guessing, compressing the numbers) get their effect multiplied
+          hundreds of times over.</p>`,
+      zh:`<p>只要回复还没结束（没遇到停止符，也没到长度上限），
+          就回到这个循环的开头，再走一遍。一条几百字的回复，
+          这四步可能要重复几百次——这也是为什么"每步省一点点"的优化
+          （重放、猜测、压缩数字）乘上几百次之后，效果会被放得很大。</p>`,
+    },
   },
   {
-    id:"done", label:"完成，归还显存", kind:"io",
-    title:"请求结束，它占的显存块回到共享池",
-    tag:"每个请求一次",
-    body:`
-      <p>回复生成完毕。这条请求占用的显存块被释放，回到最开始"分配显存"
-      那一步提到的共享池里，供下一条新请求使用——整条旅程在这里合拢成一个环。</p>`,
+    id:"done", kind:"io",
+    label:{ en:"Done, memory returned", zh:"完成，归还显存" },
+    tag:{ en:"Once per request", zh:"每个请求一次" },
+    title:{ en:"The request finishes, and its memory blocks go back into the shared pool",
+            zh:"请求结束，它占的显存块回到共享池" },
+    body:{
+      en:`<p>The reply is complete. The memory blocks this request was holding get
+          freed, returning to the shared pool mentioned back at "allocate memory" —
+          ready for the next new request. The whole journey closes into a loop right
+          here.</p>`,
+      zh:`<p>回复生成完毕。这条请求占用的显存块被释放，回到最开始"分配显存"
+          那一步提到的共享池里，供下一条新请求使用——整条旅程在这里合拢成一个环。</p>`,
+    },
   },
 ];
 
-/* ---------------- build the pipeline nodes ---------------- */
+/* ---------------- mini-visual text ---------------- */
+const MINI_TEXT = {
+  queue: {
+    rows:[ {en:"Static batch", zh:"静态攒批"}, {en:"Continuous batch", zh:"连续批处理"} ],
+    caption:{ en:"Gray = waiting　Blue/green = actually running — same amount of work, continuous batching barely waits",
+              zh:"灰色=等待　蓝色/绿色=真正执行 —— 同样的工作量，连续批处理几乎不等待" },
+  },
+  memory: {
+    caption:{ en:"Colored blocks = memory pages held by different requests　Gray = free, ready for the next request",
+              zh:"彩色块=不同请求占用的显存页　灰色=空闲、可立即分配给新请求" },
+  },
+  prefix: {
+    rows:[ {en:"Cache miss", zh:"未命中缓存"}, {en:"Cache hit", zh:"命中缓存"} ],
+  },
+  guess: {
+    rows:[ {en:"Verbatim copy task", zh:"照抄任务"}, {en:"Free rewrite task", zh:"自由改写"} ],
+  },
+  roofline: {
+    rows:[ {en:"fp16 baseline", zh:"fp16 基线"}, {en:"Compressed 1/2, unfused", zh:"压缩 1/2，未融合"},
+           {en:"Compressed 1/2, fused", zh:"压缩 1/2，融合"}, {en:"Compressed 1/4, fused", zh:"压缩 1/4，融合"} ],
+  },
+};
+
+/* ---------------- language state ---------------- */
+let LANG = localStorage.getItem("journey-lang") || "en";
+let currentStageId = null;
+
 const track = document.getElementById("track");
 const stagesEl = document.getElementById("stages");
 const packet = document.getElementById("packet");
@@ -465,93 +678,99 @@ const packet = document.getElementById("packet");
 function svgLine(){
   return `<svg viewBox="0 0 28 2" preserveAspectRatio="none"><line x1="0" y1="1" x2="28" y2="1"/></svg>`;
 }
+function tv(field){
+  // Accept either a plain string (language-independent) or a {en,zh} object.
+  return typeof field === "string" ? field : field[LANG];
+}
 
-let loopOpen = false;
-STAGES.forEach((s, i) => {
-  // Connector placement must use the container state as it stood at the end
-  // of the *previous* iteration -- computing it after this node's own
-  // loop-open/close mutations below would file the connector into the wrong
-  // parent (e.g. the line leading into the loop box would land after the
-  // box in the DOM instead of before it).
-  if(i > 0){
-    const c = document.createElement("div");
-    c.className = "connector";
-    c.innerHTML = svgLine();
-    (loopOpen ? document.getElementById("loop-box") : track).appendChild(c);
-  }
+/* ---------------- build the pipeline nodes ---------------- */
+function buildPipeline(){
+  track.innerHTML = "";
+  let loopOpen = false;
+  STAGES.forEach((s, i) => {
+    if(i > 0){
+      const c = document.createElement("div");
+      c.className = "connector";
+      c.innerHTML = svgLine();
+      (loopOpen ? document.getElementById("loop-box") : track).appendChild(c);
+    }
 
-  const willEnterLoop = s.kind.includes("loop") && !loopOpen;
-  if(willEnterLoop){
-    const box = document.createElement("div");
-    box.className = "loop-box";
-    box.id = "loop-box";
-    track.appendChild(box);
-    loopOpen = true;
-  }
+    const willEnterLoop = s.kind.includes("loop") && !loopOpen;
+    if(willEnterLoop){
+      const box = document.createElement("div");
+      box.className = "loop-box";
+      box.id = "loop-box";
+      track.appendChild(box);
+      loopOpen = true;
+    }
 
-  const parent = loopOpen ? document.getElementById("loop-box") : track;
-  const btn = document.createElement("button");
-  btn.className = "node" + (s.kind.includes("compute") ? " compute" : "");
-  btn.dataset.stage = s.id;
-  btn.innerHTML = `<span class="node-dot">${i+1}</span><span class="node-label">${s.label}</span>`;
-  btn.addEventListener("click", () => goTo(s.id, true));
-  parent.appendChild(btn);
+    const parent = loopOpen ? document.getElementById("loop-box") : track;
+    const btn = document.createElement("button");
+    btn.className = "node" + (s.kind.includes("compute") ? " compute" : "");
+    btn.dataset.stage = s.id;
+    btn.innerHTML = `<span class="node-dot">${i+1}</span><span class="node-label">${tv(s.label)}</span>`;
+    btn.addEventListener("click", () => goTo(s.id, true));
+    parent.appendChild(btn);
 
-  if(s.id === "loopback"){
-    const tag = document.createElement("div");
-    tag.className = "loop-tag";
-    tag.textContent = "每个 token 重复一次";
-    document.getElementById("loop-box").appendChild(tag);
-    loopOpen = false;
-  }
-});
+    if(s.id === "loopback"){
+      const tag = document.createElement("div");
+      tag.className = "loop-tag";
+      tag.textContent = tv(UI.loopTag);
+      document.getElementById("loop-box").appendChild(tag);
+      loopOpen = false;
+    }
+  });
+}
 
 /* ---------------- build the detail cards ---------------- */
-STAGES.forEach((s, i) => {
-  const card = document.createElement("section");
-  card.className = "stage-card";
-  card.id = "card-" + s.id;
+function buildCards(){
+  stagesEl.innerHTML = "";
+  STAGES.forEach((s, i) => {
+    const card = document.createElement("section");
+    card.className = "stage-card";
+    card.id = "card-" + s.id;
 
-  let statsHtml = "";
-  if(s.stats){
-    statsHtml = `<div class="statline">` + s.stats.map(st =>
-      `<div class="stat"><div class="stat-k">${st.k}</div><div class="stat-v ${st.cls||''}">${st.v}</div></div>`
-    ).join("") + `</div>`;
-  }
+    let statsHtml = "";
+    if(s.stats){
+      statsHtml = `<div class="statline">` + s.stats.map(st =>
+        `<div class="stat"><div class="stat-k">${tv(st.k)}</div><div class="stat-v ${st.cls||''}">${tv(st.v)}</div></div>`
+      ).join("") + `</div>`;
+    }
 
-  const numCls = s.kind.includes("compute") ? "compute" : (s.kind.includes("loop") ? "bandwidth" : "");
+    const numCls = s.kind.includes("compute") ? "compute" : (s.kind.includes("loop") ? "bandwidth" : "");
 
-  card.innerHTML = `
-    <div class="stage-kicker">
-      <span class="stage-num ${numCls}">${String(i+1).padStart(2,"0")}</span>
-      <span class="stage-tag">${s.tag}</span>
-    </div>
-    <h2>${s.title}</h2>
-    <div class="stage-body">${s.body}</div>
-    ${statsHtml}
-    <div class="mini-slot" data-mini="${s.mini||''}"></div>
-  `;
-  stagesEl.appendChild(card);
-});
+    card.innerHTML = `
+      <div class="stage-kicker">
+        <span class="stage-num ${numCls}">${String(i+1).padStart(2,"0")}</span>
+        <span class="stage-tag">${tv(s.tag)}</span>
+      </div>
+      <h2>${tv(s.title)}</h2>
+      <div class="stage-body">${tv(s.body)}</div>
+      ${statsHtml}
+      <div class="mini-slot" data-mini="${s.mini||''}"></div>
+    `;
+    stagesEl.appendChild(card);
+  });
+}
 
 /* ---------------- mini visuals ---------------- */
 function buildMini(slot, kind){
   if(!kind) return;
   const box = document.createElement("div");
   box.className = "mini";
+  const t = MINI_TEXT[kind];
 
   if(kind === "queue"){
     box.innerHTML = `
       <div class="qtimeline">
-        <div class="qrow"><span class="qrow-label">静态攒批</span>
+        <div class="qrow"><span class="qrow-label">${tv(t.rows[0])}</span>
           <div class="qtrack"><div class="qseg" style="left:0;width:70%;background:var(--idle)"></div><div class="qseg" style="left:70%;width:30%;background:var(--bandwidth)"></div></div>
         </div>
-        <div class="qrow"><span class="qrow-label">连续批处理</span>
+        <div class="qrow"><span class="qrow-label">${tv(t.rows[1])}</span>
           <div class="qtrack"><div class="qseg" style="left:8%;width:22%;background:var(--hit)"></div></div>
         </div>
       </div>
-      <p style="margin:12px 0 0;font-family:var(--mono);font-size:11px;color:var(--faint)">
-        灰色=等待　蓝色/绿色=真正执行 —— 同样的工作量，连续批处理几乎不等待</p>`;
+      <p class="mini-caption">${tv(t.caption)}</p>`;
   }
 
   if(kind === "memory"){
@@ -563,52 +782,65 @@ function buildMini(slot, kind){
     }).join("");
     box.innerHTML = `
       <div class="memgrid">${cells}</div>
-      <p style="margin:12px 0 0;font-family:var(--mono);font-size:11px;color:var(--faint)">
-        彩色块=不同请求占用的显存页　灰色=空闲、可立即分配给新请求</p>`;
+      <p class="mini-caption">${tv(t.caption)}</p>`;
   }
 
   if(kind === "prefix"){
     box.innerHTML = `
-      <div class="barrow"><span class="barrow-label">未命中缓存</span>
+      <div class="barrow"><span class="barrow-label">${tv(t.rows[0])}</span>
         <div class="bartrack"><div class="barfill" style="width:98%;background:var(--reject)"></div></div>
         <span class="barval">829 ms</span></div>
-      <div class="barrow"><span class="barrow-label">命中缓存</span>
+      <div class="barrow"><span class="barrow-label">${tv(t.rows[1])}</span>
         <div class="bartrack"><div class="barfill" style="width:19%;background:var(--hit)"></div></div>
         <span class="barval">156 ms</span></div>`;
   }
 
   if(kind === "guess"){
     box.innerHTML = `
-      <div class="barrow"><span class="barrow-label">照抄任务</span>
+      <div class="barrow"><span class="barrow-label">${tv(t.rows[0])}</span>
         <div class="bartrack"><div class="barfill" style="width:92%;background:var(--hit)"></div></div>
         <span class="barval">2.78x</span></div>
-      <div class="barrow"><span class="barrow-label">自由改写</span>
+      <div class="barrow"><span class="barrow-label">${tv(t.rows[1])}</span>
         <div class="bartrack"><div class="barfill" style="width:28%;background:var(--reject)"></div></div>
         <span class="barval">0.85x</span></div>`;
   }
 
   if(kind === "roofline"){
     box.innerHTML = `
-      <div class="barrow"><span class="barrow-label">fp16 基线</span>
+      <div class="barrow"><span class="barrow-label">${tv(t.rows[0])}</span>
         <div class="bartrack"><div class="barfill" style="width:45%;background:var(--idle)"></div></div>
         <span class="barval">1.00x</span></div>
-      <div class="barrow"><span class="barrow-label">压缩 1/2，未融合</span>
+      <div class="barrow"><span class="barrow-label">${tv(t.rows[1])}</span>
         <div class="bartrack"><div class="barfill" style="width:46%;background:var(--faint)"></div></div>
         <span class="barval">1.03x</span></div>
-      <div class="barrow"><span class="barrow-label">压缩 1/2，融合</span>
+      <div class="barrow"><span class="barrow-label">${tv(t.rows[2])}</span>
         <div class="bartrack"><div class="barfill" style="width:70%;background:var(--bandwidth)"></div></div>
         <span class="barval">1.56x</span></div>
-      <div class="barrow"><span class="barrow-label">压缩 1/4，融合</span>
+      <div class="barrow"><span class="barrow-label">${tv(t.rows[3])}</span>
         <div class="bartrack"><div class="barfill" style="width:99%;background:var(--hit)"></div></div>
         <span class="barval">2.20x</span></div>`;
   }
 
   slot.appendChild(box);
 }
-document.querySelectorAll(".mini-slot").forEach(slot => buildMini(slot, slot.dataset.mini));
+
+/* ---------------- static UI text ---------------- */
+function renderUIText(){
+  document.title = tv(UI.title);
+  document.documentElement.lang = LANG === "zh" ? "zh-CN" : "en";
+  document.getElementById("t-eyebrow").textContent = tv(UI.eyebrow);
+  document.getElementById("t-h1").textContent = tv(UI.h1);
+  document.getElementById("t-lede").innerHTML = tv(UI.lede);
+  document.getElementById("replay-btn").textContent = tv(UI.replay);
+  document.getElementById("t-hint").textContent = tv(UI.hint);
+  document.getElementById("t-footer").innerHTML = tv(UI.footer);
+  document.getElementById("lang-en").classList.toggle("active", LANG === "en");
+  document.getElementById("lang-zh").classList.toggle("active", LANG === "zh");
+}
 
 /* ---------------- interaction: click node -> highlight + scroll ---------------- */
 function setActive(id){
+  currentStageId = id;
   document.querySelectorAll(".node").forEach(n => n.classList.toggle("active", n.dataset.stage === id));
 }
 
@@ -621,6 +853,8 @@ function goTo(id, scroll){
     void card.offsetWidth;
     card.classList.add("flash");
   }
+  positionPacketAt(id);
+  packet.classList.add("on");
 }
 
 /* ---------------- auto-play the journey once on load ---------------- */
@@ -651,16 +885,37 @@ function autoplay(){
   }, reduced ? 30 : 420);
 }
 
+/* ---------------- full render (called on init and on language switch) ---------------- */
+function render(){
+  renderUIText();
+  buildPipeline();
+  buildCards();
+  document.querySelectorAll(".mini-slot").forEach(slot => buildMini(slot, slot.dataset.mini));
+  if(currentStageId){
+    setActive(currentStageId);
+    positionPacketAt(currentStageId);
+  }
+}
+
+document.getElementById("lang-en").addEventListener("click", () => {
+  if(LANG === "en") return;
+  LANG = "en"; localStorage.setItem("journey-lang", "en"); render();
+});
+document.getElementById("lang-zh").addEventListener("click", () => {
+  if(LANG === "zh") return;
+  LANG = "zh"; localStorage.setItem("journey-lang", "zh"); render();
+});
+
 document.getElementById("replay-btn").addEventListener("click", () => {
   document.getElementById("card-arrive").scrollIntoView({behavior: reduced ? "auto" : "smooth"});
   autoplay();
 });
 
 window.addEventListener("resize", () => {
-  const active = document.querySelector(".node.active");
-  if(active) positionPacketAt(active.dataset.stage);
+  if(currentStageId) positionPacketAt(currentStageId);
 });
 
+render();
 // kick off once fonts/layout settle
 window.addEventListener("load", () => setTimeout(autoplay, 300));
 })();
