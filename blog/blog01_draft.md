@@ -2,7 +2,7 @@
 
 *Qwen2.5-7B-Instruct, a single A100 80GB, and vLLM. Every number below is
 measured, not estimated, and every experiment is reproducible from
-[the repo](https://github.com/schemmy/mle-transition) with one command.*
+[the repo](https://github.com/schemmy/exp-llm) with one command.*
 
 ---
 
@@ -435,4 +435,4 @@ That's the next thing to go measure.
 
 *Everything above is reproducible. The code, the raw results, and an
 interactive walkthrough of each measurement live at
-[github.com/schemmy/mle-transition](https://github.com/schemmy/mle-transition).*
+[github.com/schemmy/exp-llm](https://github.com/schemmy/exp-llm).*
