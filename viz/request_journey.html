@@ -39,7 +39,7 @@
     font-family:var(--sans);font-size:16px;line-height:1.65;
     -webkit-font-smoothing:antialiased;
   }
-  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+  .wrap{max-width:1320px;margin:0 auto;padding:0 24px}
 
   /* ---------- language toggle ---------- */
   .lang-toggle{
@@ -73,7 +73,7 @@
     font-size:clamp(30px,5vw,48px);letter-spacing:-.02em;line-height:1.08;
     margin:0 0 16px;text-wrap:balance;
   }
-  .lede{max-width:66ch;color:var(--dim);font-size:17px;margin:0}
+  .lede{max-width:76ch;color:var(--dim);font-size:17px;margin:0}
   .lede b{color:var(--text);font-weight:500}
 
   /* ---------- pipeline stage ---------- */
@@ -187,7 +187,7 @@
     font-family:var(--display);font-weight:700;
     font-size:clamp(21px,3vw,27px);margin:0 0 14px;letter-spacing:-.01em;
   }
-  .stage-body{max-width:70ch;color:var(--dim);font-size:15.5px}
+  .stage-body{max-width:88ch;color:var(--dim);font-size:15.5px}
   .stage-body p{margin:0 0 12px}
   .stage-body b{color:var(--text);font-weight:500}
   .stage-body code{
@@ -196,9 +196,9 @@
   }
 
   .statline{
-    display:flex;gap:28px;flex-wrap:wrap;margin:18px 0 4px;
-    padding:16px 18px;background:var(--surface);border:1px solid var(--line);
-    border-radius:8px;max-width:70ch;
+    display:flex;gap:28px 40px;flex-wrap:wrap;margin:18px 0 4px;
+    padding:16px 20px;background:var(--surface);border:1px solid var(--line);
+    border-radius:8px;max-width:900px;
   }
   .stat{display:flex;flex-direction:column;gap:4px}
   .stat-k{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
@@ -210,7 +210,7 @@
 
   .mini{
     margin-top:20px;background:var(--surface);border:1px solid var(--line);
-    border-radius:8px;padding:18px 20px;max-width:70ch;
+    border-radius:8px;padding:18px 20px;max-width:900px;
   }
 
   .code-link{
@@ -672,8 +672,8 @@ const STAGES = [
 const MINI_TEXT = {
   queue: {
     rows:[ {en:"Static batch", zh:"静态攒批"}, {en:"Continuous batch", zh:"连续批处理"} ],
-    caption:{ en:"Gray = waiting　Blue/green = actually running — same amount of work, continuous batching barely waits",
-              zh:"灰色=等待　蓝色/绿色=真正执行 —— 同样的工作量，连续批处理几乎不等待" },
+    caption:{ en:"Drawn to scale on a shared time axis. Hatched = waiting for the batch to fill, solid = running to P50, faded = out to the P99 tail. The static request's first 4.4 seconds are pure waiting.",
+              zh:"按同一条时间轴等比例绘制。斜纹=在等批次凑满，实色=跑到 P50，淡色=延伸到 P99 尾部。静态攒批的请求，头 4.4 秒纯粹在等。" },
   },
   memory: {
     caption:{ en:"Colored blocks = memory pages held by different requests　Gray = free, ready for the next request",
@@ -798,13 +798,36 @@ function buildMini(slot, kind){
   const t = MINI_TEXT[kind];
 
   if(kind === "queue"){
+    // To scale on a shared 0-8.5s axis. Static: 4.4s collection wait, then
+    // running out to P50 6.36s / P99 8.18s. Continuous: 49ms TTFT, then
+    // running out to P50 2.41s / P99 3.91s. All measured, see wk05.
     box.innerHTML = `
       <div class="qtimeline">
         <div class="qrow"><span class="qrow-label">${tv(t.rows[0])}</span>
-          <div class="qtrack"><div class="qseg" style="left:0;width:70%;background:var(--idle)"></div><div class="qseg" style="left:70%;width:30%;background:var(--bandwidth)"></div></div>
+          <div class="qtrack" style="height:18px;background:var(--ground)">
+            <div class="qseg" style="left:0;width:51.8%;background:repeating-linear-gradient(45deg,#38485a,#38485a 3px,#232f3d 3px,#232f3d 7px)"></div>
+            <div class="qseg" style="left:51.8%;width:23.1%;background:var(--bandwidth)"></div>
+            <div class="qseg" style="left:74.8%;width:21.4%;background:var(--bandwidth);opacity:.4"></div>
+          </div>
+          <span class="barval" style="color:var(--reject)">6.36s</span>
         </div>
         <div class="qrow"><span class="qrow-label">${tv(t.rows[1])}</span>
-          <div class="qtrack"><div class="qseg" style="left:8%;width:22%;background:var(--hit)"></div></div>
+          <div class="qtrack" style="height:18px;background:var(--ground)">
+            <div class="qseg" style="left:0.6%;width:27.8%;background:var(--hit)"></div>
+            <div class="qseg" style="left:28.4%;width:17.6%;background:var(--hit);opacity:.4"></div>
+          </div>
+          <span class="barval" style="color:var(--hit)">2.41s</span>
+        </div>
+        <div class="qrow" style="margin-top:3px">
+          <span class="qrow-label"></span>
+          <div style="position:relative;flex:1;height:12px;font-family:var(--mono);font-size:9.5px;color:var(--faint)">
+            <span style="position:absolute;left:0">0</span>
+            <span style="position:absolute;left:23.5%">2s</span>
+            <span style="position:absolute;left:47.1%">4s</span>
+            <span style="position:absolute;left:70.6%">6s</span>
+            <span style="position:absolute;left:94.1%">8s</span>
+          </div>
+          <span class="barval"></span>
         </div>
       </div>
       <p class="mini-caption">${tv(t.caption)}</p>`;
