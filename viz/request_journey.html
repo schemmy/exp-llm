@@ -195,6 +195,41 @@
     padding:1px 5px;border-radius:3px;color:var(--text);
   }
 
+  /* --- primer box --- */
+  .primer{
+    max-width:88ch;margin:24px 0 4px;padding:18px 22px;
+    background:var(--surface);border:1px solid var(--line);
+    border-left:3px solid var(--measured);border-radius:0 8px 8px 0;
+  }
+  .primer summary{
+    cursor:pointer;list-style:none;font-family:var(--mono);font-size:12px;
+    font-weight:600;letter-spacing:.04em;color:var(--measured);
+    display:flex;align-items:center;gap:8px;
+  }
+  .primer summary::-webkit-details-marker{display:none}
+  .primer summary::before{content:"▸";transition:transform .15s}
+  .primer[open] summary::before{transform:rotate(90deg)}
+  .primer-body{margin-top:12px;font-size:14.5px;color:var(--dim);line-height:1.7}
+  .primer-body p{margin:0 0 10px}
+  .primer-body p:last-child{margin:0}
+  .primer-body b{color:var(--text);font-weight:500}
+  .primer-body .hot{color:var(--compute)}
+  .primer-body .cool{color:var(--bandwidth)}
+
+  /* --- inline glossary terms --- */
+  .gl-term{
+    font:inherit;color:inherit;background:none;border:none;padding:0;cursor:help;
+    border-bottom:1px dashed var(--faint);
+  }
+  .gl-term:hover{color:var(--text);border-color:var(--bandwidth)}
+  .gl-term.open{color:var(--bandwidth);border-color:var(--bandwidth)}
+  .gl-note{
+    margin:-4px 0 14px;padding:10px 14px;font-size:13.5px;
+    background:var(--surface-2);border-left:2px solid var(--bandwidth);
+    border-radius:0 5px 5px 0;color:var(--dim);max-width:78ch;
+  }
+  .gl-note b{color:var(--text)}
+
   .statline{
     display:flex;gap:28px 40px;flex-wrap:wrap;margin:18px 0 4px;
     padding:16px 20px;background:var(--surface);border:1px solid var(--line);
@@ -261,6 +296,10 @@
     <p class="eyebrow" id="t-eyebrow"></p>
     <h1 id="t-h1"></h1>
     <p class="lede" id="t-lede"></p>
+    <details class="primer" id="primer" open>
+      <summary id="t-primer-summary"></summary>
+      <div class="primer-body" id="t-primer-body"></div>
+    </details>
   </div>
 </header>
 
@@ -306,6 +345,31 @@ const UI = {
   hint:       { en:"or click any stage directly", zh:"或者直接点任意一站" },
   loopTag:    { en:"repeats once per token", zh:"每个 token 重复一次" },
   viewCode:   { en:"View the experiment", zh:"查看实验代码" },
+  primerSummary: { en:"NEW TO THIS?  THE ONE IDEA THE WHOLE PAGE IS BUILT ON",
+                   zh:"第一次看？  这一页建立在一个想法上" },
+  primerBody: {
+    en:`<p>Serving a request is <b>two kinds of work</b>. First, the model reads your
+        whole prompt in one shot — this is the <span class="hot">prefill</span> phase,
+        and it keeps the GPU's math units genuinely busy.</p>
+        <p>Then it writes the answer <b>one word at a time</b> — the
+        <span class="cool">decode</span> phase. Here's the surprise: producing each
+        word barely uses the GPU's math at all. The slow part is that every word
+        forces the GPU to haul the model's entire set of numbers (its "weights" —
+        about 14 GB) out of memory and into the math units. That trip, not the
+        arithmetic, is what sets the speed.</p>
+        <p>So almost every trick on this page is doing one of two things:
+        <b>getting more useful work out of each of those memory trips</b>, or
+        <b>making the trips carry fewer bytes</b>. Once you see that, the rest
+        follows.</p>`,
+    zh:`<p>服务一个请求是<b>两种活</b>。先是模型把你整段 prompt 一次性读进去——这是
+        <span class="hot">prefill</span> 阶段，GPU 的计算单元是真的在忙。</p>
+        <p>然后它<b>一个字一个字</b>往外写答案——<span class="cool">decode</span> 阶段。
+        意外的地方在这：生成每个字，几乎用不到 GPU 的算力。慢的是——每写一个字，
+        都要把模型的全部数字（它的"权重"，约 14 GB）从显存里搬进计算单元。
+        决定速度的是这趟搬运，不是那点算术。</p>
+        <p>所以这一页几乎每个技巧，都在做两件事之一：<b>让每趟搬运干更多有用的活</b>，
+        或者<b>让每趟搬运的字节更少</b>。看懂这个，后面就顺了。</p>`,
+  },
   footer:     { en:`Data from <code>benchmarks/README.md</code>, Qwen2.5-7B-Instruct, A100-80GB,
                     fp16, vLLM · every experiment is reproducible:
                     <code>modal run experiments/wkXX_*/*.py</code> · also see the
@@ -317,6 +381,157 @@ const UI = {
                     <a href="week11_roofline.html">roofline 深潜</a>` },
 };
 
+/* ---------------- glossary (bilingual) ---------------- */
+const GLOSSARY = {
+  "gpu": {
+    en:`One physical accelerator card. "GPU" and "card" mean the same thing on this
+        page. It can serve many requests at once by interleaving them, not by having
+        separate hardware per person.`,
+    zh:`一张物理加速卡。本页里"GPU"和"卡"是同一个东西。它靠交错处理来同时服务很多请求，
+        不是每人一套硬件。` },
+  "a100": {
+    en:`NVIDIA's data-center GPU from 2020. The "80GB" is how much fast memory it has
+        on board. Every number on this page was measured on one A100.`,
+    zh:`NVIDIA 2020 年的数据中心 GPU。"80GB"指它自带的高速显存。本页所有数字都在一张 A100 上测得。` },
+  "vllm": {
+    en:`An open-source serving engine for LLMs — the software layer that schedules
+        requests, manages memory, and runs the model. Most of the tricks here are
+        vLLM features.`,
+    zh:`一个开源的 LLM 服务引擎——负责调度请求、管理显存、跑模型的那层软件。本页大部分技巧都是它的功能。` },
+  "batch": {
+    en:`A group of requests the GPU processes together in one pass. Because a pass
+        re-reads the model's weights regardless of how many requests ride along,
+        a bigger batch spreads that fixed cost over more work.`,
+    zh:`GPU 一次处理的一组请求。一次处理不管带几条请求都要把权重重读一遍，所以 batch 越大，
+        这份固定成本被摊得越薄。` },
+  "kv-cache": {
+    en:`As the model generates, it keeps a running summary of everything said so far
+        so it doesn't reprocess the whole conversation each step. That summary is the
+        KV cache. It grows with every token and lives in GPU memory.`,
+    zh:`模型一边生成，一边保留一份"目前为止说过的话"的摘要，这样每步不用把整段重算一遍。
+        这份摘要就是 KV cache。它随每个 token 增长，住在显存里。` },
+  "tensor-core": {
+    en:`The part of the GPU built specifically for multiplying big matrices — the bulk
+        of a model's math. "Keeping them fed" means giving them large enough chunks of
+        work; a trickle of tiny operations leaves them mostly idle.`,
+    zh:`GPU 里专门做大矩阵乘法的部件——模型的大部分算术都在这。"喂饱它"就是给足够大块的活；
+        一堆零碎小运算会让它大部分时间闲着。` },
+  "forward-pass": {
+    en:`One run of the input through the whole model, start to finish. Normally one
+        pass produces one new token during generation.`,
+    zh:`把输入从头到尾过一遍整个模型。生成时通常一次前向传播产出一个新 token。` },
+  "weights": {
+    en:`The billions of numbers learned during training that define the model. For the
+        7-billion-parameter model here they take about 14 GB. A "layer's weights" is
+        one slice of them.`,
+    zh:`训练时学到的、定义这个模型的几十亿个数字。这里的 70 亿参数模型约占 14 GB。
+        "一层的权重"是其中一片。` },
+  "prefill": {
+    en:`Processing the input prompt — all its tokens at once, in parallel. This is the
+        compute-heavy phase; it can be over in milliseconds for a short prompt.`,
+    zh:`处理输入的 prompt——所有 token 一次性并行算完。这是算力密集的阶段；短 prompt 几毫秒就结束。` },
+  "decode": {
+    en:`Generating the answer, one token per step. Each step is limited by pulling the
+        weights from memory, not by the math — which is why it's the slow phase.`,
+    zh:`生成答案，每步一个 token。每步的瓶颈是从显存搬权重，不是算术——所以这是慢的阶段。` },
+  "compute-bound": {
+    en:`The math units are the limiting factor — they're the thing running flat out.
+        Prefill is usually compute-bound.`,
+    zh:`计算单元是限制因素——它是全速运转的那个。prefill 通常是算力瓶颈。` },
+  "bandwidth-bound": {
+    en:`Memory bandwidth is the limiting factor — the speed of moving data between the
+        GPU's memory and its math units, not the math itself. Decode is bandwidth-bound:
+        the weights have to travel every step and that trip dominates.`,
+    zh:`显存带宽是限制因素——数据在显存和计算单元之间来回搬的速度，不是算术本身。
+        decode 是带宽瓶颈：权重每步都要走一趟，这趟搬运占了大头。` },
+  "ttft": {
+    en:`Time To First Token — how long you wait for the reply to start. On this page it
+        ranges from ~49ms (prompt prefix was cached) to ~156ms.`,
+    zh:`Time To First Token，首字延迟——你等回复开始的时间。本页从约 49ms（前缀命中缓存）到约 156ms。` },
+  "tpot": {
+    en:`Time Per Output Token — the gap between words once the reply is flowing. Around
+        10-12ms per token here, i.e. ~85-100 words/second.`,
+    zh:`Time Per Output Token，逐字间隔——回复开始流之后每个字之间的间隔。这里约 10-12ms 一个 token，
+        即每秒约 85-100 个字。` },
+  "percentile": {
+    en:`P50 is the median — half of requests are faster. P99 is the slow tail — only 1%
+        of requests are slower than this. Tail latency is what users actually complain about.`,
+    zh:`P50 是中位数——一半请求比它快。P99 是慢尾——只有 1% 的请求比它更慢。用户真正抱怨的是尾部延迟。` },
+  "fp16": {
+    en:`"16-bit floating point" — the default way each weight is stored, 2 bytes per
+        number. Quantization replaces this with a smaller format to move fewer bytes.`,
+    zh:`"16 位浮点"——每个权重的默认存储方式，每个数字 2 字节。量化把它换成更小的格式，好少搬点字节。` },
+  "int4": {
+    en:`"4-bit integer" — a compressed way to store each weight, a quarter the size of
+        fp16. Faster to move, but each number has to be expanded back before the math.`,
+    zh:`"4 位整数"——一种压缩的权重存储方式，只有 fp16 的四分之一大。搬得快，但每个数字要在计算前还原回去。` },
+  "quantization": {
+    en:`Storing the model's weights in a smaller number format (fewer bits each) so the
+        per-step memory trip carries fewer bytes. Whether it actually speeds things up
+        depends on the GPU kernel fusing the "expand back to full precision" step into
+        the matrix multiply.`,
+    zh:`把模型权重用更小的数字格式存（每个数字位数更少），让每步的显存搬运少扛点字节。
+        实际能不能加速，取决于 GPU kernel 有没有把"还原回全精度"这一步和矩阵乘法融合到一起。` },
+  "tp": {
+    en:`Tensor parallelism — splitting each layer's weights across several GPUs so each
+        one only moves its share per step. "TP=4" means split across 4 GPUs.`,
+    zh:`张量并行——把每一层的权重切开分给几张 GPU，每张卡每步只搬自己那一份。"TP=4"就是切到 4 张卡。` },
+  "all-reduce": {
+    en:`When the model is split across GPUs, after each layer they have to swap and
+        combine their partial results before continuing. That swap is an all-reduce,
+        and it's the overhead that keeps splitting from being free.`,
+    zh:`模型切到多卡后，每层算完各卡要交换并合并各自的部分结果才能继续。这个交换就是 all-reduce，
+        也是切卡不免费的那部分开销。` },
+  "moe": {
+    en:`Mixture of experts — a model built from many small sub-networks ("experts"), where
+        a router sends each token to just a few of them. The unused experts still have to
+        sit in memory but don't do math for that token.`,
+    zh:`混合专家——由很多个小子网络（"专家"）组成的模型，一个路由器把每个 token 只送去其中几个。
+        没被选中的专家仍要占显存，但不为这个 token 做计算。` },
+  "cuda-graph": {
+    en:`Generating a token means the CPU firing off hundreds of small GPU instructions.
+        A CUDA graph records that whole sequence once, so it can be replayed as a single
+        action instead of re-issued every step.`,
+    zh:`生成一个 token 要 CPU 发出几百条小的 GPU 指令。CUDA graph 把整串指令录一次，
+        之后当一个动作重放，不用每步重新发。` },
+  "roofline": {
+    en:`A back-of-envelope model: a GPU's peak math rate divided by its peak memory
+        bandwidth tells you the batch size where a workload stops being bandwidth-limited
+        and starts being math-limited. For this A100 that crossover is around batch 150.`,
+    zh:`一个粗算模型：GPU 的峰值算力除以峰值带宽，能算出一个 batch 大小——过了它，
+        负载就从带宽瓶颈变成算力瓶颈。这张 A100 的这个临界点在 batch 150 左右。` },
+  "theoretical-peak": {
+    en:`The number on the spec sheet. Real code never reaches it — attention, normalization,
+        and imperfect hardware use eat into it. This stack tops out around half of peak.`,
+    zh:`规格表上的数字。实际代码永远达不到——注意力、归一化、硬件利用不完美都会吃掉一部分。
+        这套系统的上限大约是峰值的一半。` },
+  "poisson": {
+    en:`A way to model random arrivals — requests show up at unpredictable moments, but
+        with a known average gap. "Mean 0.2s" means one request every 0.2s on average.`,
+    zh:`一种给随机到达建模的方式——请求在不可预测的时刻出现，但平均间隔已知。
+        "均值 0.2s"就是平均每 0.2 秒来一条。` },
+  "saturate": {
+    en:`Loading the GPU heavily enough that it's the bottleneck — no more free capacity.
+        Short prompts don't saturate it because they finish before the GPU is fully loaded.`,
+    zh:`把 GPU 压到它成为瓶颈——没有多余产能了。短 prompt 打不满它，因为还没压满就跑完了。` },
+  "throughput-latency": {
+    en:`Throughput = tokens produced per second across everyone. Latency = how long your
+        one request takes. Optimizing one often doesn't move the other — that's the whole
+        point of the batching stage.`,
+    zh:`吞吐 = 所有人加起来每秒产出的 token。延迟 = 你这一条请求要多久。优化其中一个常常动不了另一个——
+        这正是"排队"那一节的重点。` },
+  "system-prompt": {
+    en:`A block of instructions prepended to every user message ("You are a helpful
+        assistant that…"). Because it's identical across requests, its computation can be
+        cached and reused.`,
+    zh:`加在每条用户消息前面的一段指令（"你是一个乐于助人的助手……"）。因为每条请求都一样，
+        它的计算可以被缓存复用。` },
+  "stop-token": {
+    en:`A special token the model emits to signal "I'm done." The serving system watches
+        for it (or for a length limit) to know when to stop the decode loop.`,
+    zh:`模型吐出的一个特殊 token，表示"我说完了"。服务系统盯着它（或盯着长度上限）来决定何时停止 decode 循环。` },
+};
+
 /* ---------------- stage definitions (bilingual) ---------------- */
 const STAGES = [
   {
@@ -326,15 +541,18 @@ const STAGES = [
     title:{ en:"One prompt, sent to a GPU already serving a hundred other people",
             zh:"一个 prompt，发往一台正在服务其他一百个人的机器" },
     body:{
-      en:`<p>Your prompt leaves the client and lands on a GPU server — one that's
-          probably already serving dozens, maybe hundreds, of other people's requests
-          right now. It won't wait for you, and it won't clear space just for you.</p>
+      en:`<p>Your prompt leaves the client and lands on a [[gpu|GPU]] server — one
+          [[a100|A100]] card running the model through [[vllm]], probably already
+          serving dozens, maybe hundreds, of other people's requests right now. It
+          won't wait for you, and it won't clear memory just for you.</p>
           <p>Every step from here on is this shared card figuring out: "how do I fit
-          this new request into what's already happening, at the least possible cost?"</p>`,
-      zh:`<p>你的 prompt 离开客户端，落到一台 GPU 服务器上——这台卡此刻大概率正在
-          同时服务几十个甚至上百个别人的请求。它不会等你，也不会为你单独腾出时间。</p>
+          this new request into what's already happening, at the least possible cost
+          in latency and memory?"</p>`,
+      zh:`<p>你的 prompt 离开客户端，落到一台 [[gpu|GPU]] 服务器上——一张 [[a100|A100]]
+          卡，用 [[vllm]] 跑着模型，此刻大概率正在
+          同时服务几十个甚至上百个别人的请求。它不会等你，也不会为你单独腾出显存。</p>
           <p>接下来的每一步，都是这台共享的卡在琢磨："怎么把这条新请求塞进正在
-          发生的事情里，代价最小。"</p>`,
+          发生的事情里，在延迟和显存上代价最小。"</p>`,
     },
   },
   {
@@ -344,25 +562,26 @@ const STAGES = [
     title:{ en:"Wait to fill a batch, or process it the moment it arrives?",
             zh:"等齐一批再一起跑，还是随到随处理？" },
     body:{
-      en:`<p>The intuitive move is to let requests queue up and submit them together —
-          it feels like handing the GPU more to chew on at once. <b>Measured, that
-          intuition is almost entirely wrong</b>: end-to-end throughput barely changed
-          (717 → 705 tok/s), but the time wasted waiting to fill the batch left median
-          latency 2.6x worse, and the tail (P99) nearly 2.1x worse.</p>
+      en:`<p>The intuitive move is to let requests queue up and submit them together
+          as one [[batch]] — it feels like handing the GPU more to chew on at once.
+          <b>Measured, that intuition is almost entirely wrong</b>: end-to-end
+          [[throughput-latency|throughput]] barely changed (717 → 705 tok/s), but the
+          time wasted waiting to fill the batch left median latency 2.6x worse, and
+          the tail ([[percentile|P99]]) nearly 2.1x worse.</p>
           <p>The GPU was never short on capacity — the problem was making early
           arrivals wait for late ones. Let the engine admit and retire requests
-          continuously, and the fix isn't giving the GPU more work. It's removing
-          waiting that never needed to happen.</p>
+          continuously (<b>continuous batching</b>), and the fix isn't giving the GPU
+          more work. It's removing waiting that never needed to happen.</p>
           <p>The sharpest evidence for that: once the static batch actually starts
           running, its own raw compute throughput is <b>higher</b>, not lower — 1,555
           tok/s, more than double continuous batching's steady 705. Every bit of the
           loss sits in the 4.4-second wait to collect the batch in the first place.
           The compute was never the problem.</p>`,
-      zh:`<p>最直觉的做法是攒够一批请求再一起提交——听起来像是在给 GPU 更多东西一次性处理。
-          <b>实测下来几乎是幻觉</b>：端到端吞吐几乎没变（717 → 705 tok/s），
-          但攒批期间白白流逝的等待，让 P50 延迟差了 2.6 倍，P99 尾部延迟差了近 2.1 倍。</p>
+      zh:`<p>最直觉的做法是攒够[[batch|一批]]请求再一起提交——听起来像是在给 GPU 更多东西一次性处理。
+          <b>实测下来几乎是幻觉</b>：端到端[[throughput-latency|吞吐]]几乎没变（717 → 705 tok/s），
+          但攒批期间白白流逝的等待，让 P50 延迟差了 2.6 倍，[[percentile|P99]] 尾部延迟差了近 2.1 倍。</p>
           <p>GPU 从来不缺算力，缺的是"别让先来的人等后来的人"。让引擎随到随处理、
-          随走随补位（连续批处理），问题就解决了——不是给 GPU 更多工作，
+          随走随补位（<b>连续批处理</b>），问题就解决了——不是给 GPU 更多工作，
           是不再制造不必要的等待。</p>
           <p>最直接的证据：静态批处理一旦真正开始跑，纯计算段的吞吐反而<b>更高</b>——
           批次内部能到 1,555 tok/s，是连续批处理稳态速度（705）的两倍还多。
@@ -389,20 +608,26 @@ const STAGES = [
             zh:"没人知道这条请求会说多久，显存却要提前占位" },
     body:{
       en:`<p>Every request needs a chunk of memory to hold everything it's generated so
-          far (the KV cache). The problem: nobody knows in advance whether it'll say 10
-          words or 1,000. Reserve for the worst case, every time, and <b>60-80% of that
-          memory sits wasted</b>, holding space that's probably never used.</p>
-          <p>The fix borrows straight from how an operating system pages virtual
-          memory: instead of one large reservation, hand out small fixed blocks on
-          demand, wherever they physically fit, and keep a table mapping logical
-          position to physical block. Fragmentation drops from 60-80% to under 4% —
-          and the memory that frees up becomes room for more concurrent requests.</p>`,
-      zh:`<p>每条请求都要占一块显存，记录它到目前为止生成过的全部内容（KV cache）。
+          far (the [[kv-cache|KV cache]]). The problem: nobody knows in advance whether
+          it'll say 10 words or 1,000. Reserve for the worst case, every time, and
+          <b>60-80% of that memory sits wasted</b>, holding space that's probably never
+          used.</p>
+          <p>The fix (this is <b>PagedAttention</b>): instead of one big reservation per
+          request, hand out small fixed-size blocks on demand as the reply grows,
+          wherever they physically fit, and keep a lookup table from "position N in
+          this sequence" to "wherever block N actually landed." Scattering the blocks
+          costs nothing because the table hides it. Wasted memory drops from 60-80% to
+          under 4%, and that reclaimed space becomes room for more concurrent
+          requests.</p>`,
+
+      zh:`<p>每条请求都要占一块显存，记录它到目前为止生成过的全部内容（[[kv-cache|KV cache]]）。
           问题是没人知道它会说 10 个字还是 1000 个字——按最坏情况预留，
           <b>实测浪费掉 60-80% 的显存</b>，装着永远用不到的空位。</p>
-          <p>解法照搬操作系统管虚拟内存的办法：不整块预留，按 16-token 的小块按需发放，
-          物理位置随便放，靠一张表记录映射。碎片率从 60-80% 降到 &lt;4%——
-          省下的显存直接换成更多能同时服务的请求。</p>`,
+          <p>解法（这就是 <b>PagedAttention</b>）：不给每条请求整块预留，而是随着回复增长
+          按 16-token 的小块按需发放，物理位置随便放，再用一张查找表记住
+          "这条序列的第 N 个位置"对应"第 N 块实际落在哪"。块散着放也没关系，
+          表把这件事藏起来了。浪费的显存从 60-80% 降到 &lt;4%，腾出来的空间
+          直接换成更多能同时服务的请求。</p>`,
     },
     stats:[
       { k:{en:"Fragmentation (before paging)", zh:"碎片率（分块前）"}, v:"60-80%", cls:"bad" },
@@ -419,10 +644,10 @@ const STAGES = [
             zh:"这段开头，是不是已经有人问过了？" },
     body:{
       en:`<p>Now that memory is managed in small blocks, there's an extra opportunity:
-          if this request's opening (the same system prompt, the same repeatedly-cited
-          document) matches an earlier request's opening token-for-token, that part
-          never needs recomputing — just reuse the blocks that are already sitting
-          there.</p>
+          if this request's opening (the same [[system-prompt|system prompt]], the same
+          repeatedly-cited document) matches an earlier request's opening token-for-token,
+          that part never needs recomputing — just reuse the [[kv-cache|KV cache]] blocks
+          that are already sitting there.</p>
           <p>Measured on 32 requests sharing a roughly 500-token prefix: after a cache
           hit, <b>time-to-first-token drops from 829ms to 156ms</b>, and the compute
           that used to go into re-running the prefix gets redirected into generating
@@ -430,8 +655,9 @@ const STAGES = [
           has to be exact, token for token; one character off and the whole prefix gets
           recomputed.</p>`,
       zh:`<p>显存现在是按小块管理的，这带来一个额外的机会：如果这条请求的开头
-          （同一份系统提示词、同一篇被反复引用的文档）跟之前某条请求的开头
-          逐 token 完全一样，那部分根本不用重新算——直接复用已经算好的块。</p>
+          （同一份[[system-prompt|系统提示词]]、同一篇被反复引用的文档）跟之前某条请求的开头
+          逐 token 完全一样，那部分根本不用重新算——直接复用已经算好的
+          [[kv-cache|KV cache]] 块。</p>
           <p>32 条请求共享约 500 token 前缀的实测：命中缓存后，
           <b>首字延迟从 829ms 降到 156ms</b>，省下的算力全部转去生成更多 token，
           吞吐反而涨了。代价是必须逐 token 完全匹配——差一个字就全部重算。</p>`,
@@ -451,19 +677,20 @@ const STAGES = [
             zh:"整段 prompt 一次算完——这是全程唯一算力吃满的时刻" },
     body:{
       en:`<p>Whatever part of the prompt wasn't already cached now runs through the
-          model for real — all at once, in parallel, across every token. This is the
-          one phase in the whole journey where the GPU's tensor cores are actually
-          fed enough work to stay busy. A short prompt's prefill is over almost before
-          it registers; a long prompt (thousands of tokens) can dominate the entire
-          request's latency.</p>
-          <p>This is also why short prompts struggle to saturate a GPU — prefill flies
-          by, and most of the time gets spent in the next phase: producing one word at
-          a time.</p>`,
+          model for real — all at once, in parallel, across every token. This is
+          [[prefill]], the one phase in the whole journey where the GPU's
+          [[tensor-core|tensor cores]] are actually fed enough work to stay busy. A
+          short prompt's prefill is over almost before it registers; a long prompt
+          (thousands of tokens) can dominate the entire request's latency.</p>
+          <p>This is also why short prompts struggle to [[saturate]] a GPU — prefill
+          flies by, and most of the time gets spent in the next phase: producing one
+          word at a time.</p>`,
       zh:`<p>没被缓存命中的那部分 prompt，现在要真正过一遍模型——一次性、
-          并行地算完所有 token，这是全程唯一一个 GPU 张量核心被真正喂饱的阶段。
+          并行地算完所有 token，这是 [[prefill]] 阶段，全程唯一一个 GPU
+          [[tensor-core|张量核心]]被真正喂饱的时刻。
           短 prompt 的 prefill 快到几乎察觉不到；长 prompt（几千 token）的 prefill
           可能要占掉整个请求延迟的大头。</p>
-          <p>这也是为什么短 prompt 很难把 GPU 打满——prefill 一晃而过，
+          <p>这也是为什么短 prompt 很难把 GPU [[saturate|打满]]——prefill 一晃而过，
           大部分时间花在下一步：一个字一个字往外吐。</p>`,
     },
   },
@@ -474,34 +701,34 @@ const STAGES = [
     title:{ en:"What happens when the model itself doesn't fit on one GPU",
             zh:"模型太大，一张卡放不下时会发生什么" },
     body:{
-      en:`<p><b>Slice every layer's weights across several GPUs</b>: each GPU now only
-          has to move its own share, and two GPUs measured latency dropping from
-          10.3ms to 6.6ms — but every layer needs a communication step to reassemble
-          the result, and that eats part of the theoretical gain (2 GPUs: 1.55x,
-          4 GPUs: 2.16x, not 2x/4x). More importantly, <b>throughput per GPU
-          actually falls</b> — four GPUs working hard deliver less than four
-          independent single-GPU replicas would. Splitting the model buys
-          "it fits" and lower latency, not cost efficiency.</p>
+      en:`<p><b>Slice every layer's [[weights]] across several GPUs</b> ([[tp|tensor
+          parallelism]]): each GPU now only has to move its own share, and two GPUs
+          measured latency dropping from 10.3ms to 6.6ms — but every layer needs a
+          communication step ([[all-reduce]]) to reassemble the result, and that eats
+          part of the theoretical gain (2 GPUs: 1.55x, 4 GPUs: 2.16x, not 2x/4x). More
+          importantly, <b>throughput per GPU actually falls</b> — four GPUs working
+          hard deliver less than four independent single-GPU replicas would. Splitting
+          the model buys "it fits" and lower latency, not cost efficiency.</p>
           <p><b>If the model itself only uses a fraction of its parameters per token
-          (mixture-of-experts)</b>: memory has to account for every expert, but speed
-          should only track the few actually used — sounds like a free lunch. Measured
-          at low concurrency, it nearly is (67% of an equivalent small dense model's
-          speed). <b>But that advantage almost completely evaporates under load</b>
-          (down to 6%) — requests get scattered across dozens of experts, and each one
-          ends up with too little work to keep the tensor cores fed. Batching, the
-          lever that helped everywhere else, is the one this architecture can't
-          pull.</p>`,
-      zh:`<p><b>把每一层的权重切开分给几张卡</b>：每张卡只需搬运自己那一份权重，
-          两张卡实测延迟从 10.3ms 降到 6.6ms——但每层算完要汇总，
+          ([[moe|mixture-of-experts]])</b>: memory has to account for every expert, but
+          speed should only track the few actually used — sounds like a free lunch.
+          Measured at low concurrency, it nearly is (67% of an equivalent small dense
+          model's speed). <b>But that advantage almost completely evaporates under
+          load</b> (down to 6%) — requests get scattered across dozens of experts, and
+          each one ends up with too little work to keep the [[tensor-core|tensor
+          cores]] fed. Batching, the lever that helped everywhere else, is the one this
+          architecture can't pull.</p>`,
+      zh:`<p><b>把每一层的[[weights|权重]]切开分给几张卡</b>（[[tp|张量并行]]）：每张卡只需搬运自己那一份权重，
+          两张卡实测延迟从 10.3ms 降到 6.6ms——但每层算完要汇总（[[all-reduce]]），
           这一步通信吃掉了理论收益的一部分（2 卡 1.55x，4 卡 2.16x，
           不是 2x/4x）。更关键的是<b>每张卡的实际产出在下降</b>——
           四张卡卖力气换来的吞吐，不如四个独立单卡实例。切卡买的是"装得下"
           和更低延迟，不是性价比。</p>
-          <p><b>如果模型天生只用一部分参数（混合专家）</b>：显存要按全部专家算，
+          <p><b>如果模型天生只用一部分参数（[[moe|混合专家]]）</b>：显存要按全部专家算，
           速度却只看真正用到的那几个——听起来像白捡便宜。实测在并发低时确实接近
           白捡（达到同等小模型速度的 67%），但<b>并发一高这个优势几乎完全蒸发</b>
           （只剩 6%）——请求被打散到几十个专家上，每个专家分到的计算量太小，
-          喂不饱张量核心。批处理是这类模型唯一吃不到的红利。</p>`,
+          喂不饱[[tensor-core|张量核心]]。批处理是这类模型唯一吃不到的红利。</p>`,
     },
     stats:[
       { k:{en:"TP=4 speedup", zh:"TP=4 加速比"}, v:"2.16x", cls:"" },
@@ -517,16 +744,16 @@ const STAGES = [
     title:{ en:"Record the same instruction sequence once, then just replay it",
             zh:"同样的指令序列，录一次，之后直接重放" },
     body:{
-      en:`<p>Generating each token means sending the GPU hundreds of instructions,
-          each with its own microsecond-scale CPU overhead — added up, that can eat a
-          meaningful chunk of time that should have gone to waiting on data instead.
-          The fix is to <b>record that whole instruction sequence as a graph once</b>,
-          then replay it wholesale instead of reissuing every instruction from
-          scratch, every single step.</p>
-          <p>A back-of-envelope guess put the value at around 20%. <b>Measured, it was
-          2.69x</b> — the estimate missed a second, larger cost: the framework's own
-          Python-side dispatch overhead, which usually costs more than the raw
-          instruction send itself.</p>`,
+      en:`<p>Generating each token means the CPU sending the GPU hundreds of
+          instructions, each with its own microsecond-scale overhead — added up, that
+          can eat a meaningful chunk of time that should have gone to the real
+          bottleneck, moving data. The fix is a <b>[[cuda-graph|CUDA graph]]</b>:
+          record that whole instruction sequence once, then replay it wholesale
+          instead of reissuing every instruction from scratch, every single step.</p>
+          <p>A back-of-envelope guess put the value at around 20% (≈1.2x).
+          <b>Measured, it was 2.69x</b> — the estimate missed a second, larger cost:
+          the framework's own Python-side dispatch overhead, which usually costs more
+          than the raw instruction send itself.</p>`,
       zh:`<p>生成每个 token 要给 GPU 发几百条指令，每条都有微秒级的 CPU 开销——
           加起来能占掉一大块本该用来等数据的时间。解法是把这串指令<b>录制成一张图</b>，
           之后整体重放，不用每次都重新发号施令。</p>
@@ -545,25 +772,27 @@ const STAGES = [
     title:{ en:"A small model guesses ahead; the big model verifies every guess in one pass",
             zh:"用小模型先猜几步，大模型一次性核对" },
     body:{
-      en:`<p>While generating tokens, the GPU spends most of its time waiting on data
-          — compute sits largely idle. So: what if something cheap guessed a few
-          tokens ahead, and the real model <b>verified all of those guesses in a
-          single forward pass</b>? Verifying costs almost the same as generating one
-          token, because the bottleneck was never the arithmetic — it was moving
-          data.</p>
-          <p>The first test came back with only an 8% speedup — far below what these
-          techniques are supposed to deliver. <b>Switching to a task the guesses are
-          more likely to land on</b> (reproduce this passage verbatim, vs. rewrite it
-          freely) revealed the real variable: whether the guess was right is the only
-          thing that decides the outcome. Verbatim copy: 2.78x. Free rewrite: a net
-          loss of 15% under heavy concurrency.</p>`,
-      zh:`<p>生成 token 时，GPU 大部分时间在等数据，算力基本空闲。
-          既然如此，能不能先猜接下来几个字，再用一次前向传播<b>并行核对</b>
-          这些猜测？核对的成本几乎等于生成一个字的成本——反正瓶颈从来不是算，
-          是搬数据。</p>
-          <p>第一次测试只快了 8%——远低于预期。<b>换一个更容易被猜中的任务
+      en:`<p>While generating tokens, the GPU spends most of its time waiting on the
+          weights to arrive from memory — [[bandwidth-bound|compute sits largely
+          idle]]. So: what if something cheap guessed a few tokens ahead, and the real
+          model <b>verified all of those guesses in a single [[forward-pass|forward
+          pass]]</b>? Verifying 5 guesses moves the weights exactly once, same as
+          generating 1 token — and that move was the bottleneck, not the arithmetic.
+          (This is <b>speculative decoding</b>.)</p>
+          <p>The first test came back with only an 8% speedup — far below the 2-3x
+          these techniques are supposed to deliver. <b>Switching to a task the guesses
+          are more likely to land on</b> (reproduce this passage verbatim, vs. rewrite
+          it freely) revealed the real variable: whether the guess was right is the
+          only thing that decides the outcome. Verbatim copy: 2.78x. Free rewrite: a
+          net loss of 15% under heavy concurrency — a wrong guess wastes the
+          verification work.</p>`,
+      zh:`<p>生成 token 时，GPU 大部分时间在等权重从显存搬过来，[[bandwidth-bound|算力基本空闲]]。
+          既然如此，能不能先猜接下来几个字，再用一次[[forward-pass|前向传播]]<b>并行核对</b>
+          这些猜测？核对 5 个猜测只搬一次权重，和生成 1 个字一样——而搬权重才是瓶颈，不是算术。
+          （这就是<b>投机解码</b>。）</p>
+          <p>第一次测试只快了 8%——远低于这类技术该有的 2-3x。<b>换一个更容易被猜中的任务
           （原文照抄 vs 自由改写）</b>，答案揭晓：猜没猜中，才是唯一决定成败的变量。
-          照抄任务：2.78x；自由改写任务：高并发下甚至净亏 15%。</p>`,
+          照抄任务：2.78x；自由改写任务：高并发下甚至净亏 15%——猜错了，核对那一步的活就白做了。</p>`,
     },
     stats:[
       { k:{en:"High hit rate (verbatim copy)", zh:"命中率高（照抄）"}, v:"2.78x", cls:"good" },
@@ -579,30 +808,32 @@ const STAGES = [
             zh:"每个字都要把整个模型重新搬一遍" },
     body:{
       en:`<p>This is where the real bottleneck lives: generating each token means
-          pulling the model's entire set of weights from memory into the compute
-          units — for a model in the tens of billions of bytes, that move alone eats
-          more than half of every step's time, while compute sits largely idle.</p>
-          <p><b>Can shrinking those numbers save time moving them?</b> The first
-          attempt came back nearly empty-handed — the numbers got smaller, but speed
-          barely changed. The reason: a compressed number still has to be expanded
-          back before the real math can happen, and if that expansion isn't fused into
-          the same pass as the multiplication, the round trip eats back everything
-          the smaller size saved. <b>Switching to a properly fused execution path</b>,
-          compressed to a quarter of the original size, flipped the result entirely —
-          beating even the format that only compressed to half (2.2x vs 1.56x).</p>
-          <p>The real compute ceiling this card can reach tops out at <b>about half</b>
-          of its theoretical peak — not a tuning gap, just the real limit of this
-          stack.</p>`,
-      zh:`<p>这是全程真正的瓶颈所在：每生成一个字，都要把模型的全部权重
-          从显存搬进计算单元——对一个 140 亿字节量级的模型，这趟搬运本身
-          就要花掉每步一多半的时间，算力反而大量空闲。</p>
-          <p><b>压缩这些数字能不能省下搬运时间？</b>第一次尝试几乎交了白卷——
-          数字变小了，速度却几乎没变。原因是压缩后还要在真正计算前还原回去，
-          如果这一步没有和矩阵乘法融合在一起，省下的时间会被还原本身吃掉。
-          <b>换一条融合过的执行路径</b>，压缩到四分之一大小，直接反超——
+          pulling the model's entire set of [[weights]] from memory into the compute
+          units — for a 14 GB model that move alone eats more than half of every
+          step's time (the rest is the math), while compute sits largely idle. The
+          step is [[bandwidth-bound]].</p>
+          <p><b>Can shrinking those numbers save time moving them?</b> ([[quantization]].)
+          The first attempt came back nearly empty-handed — the numbers got smaller
+          ([[fp16]] → 8-bit), but speed barely changed. The reason: a compressed number
+          still has to be expanded back before the real math, and if that expansion
+          isn't fused into the same GPU operation as the multiplication, the round trip
+          eats back everything the smaller size saved. <b>Switching to a properly fused
+          path</b>, compressed to a quarter of the original size ([[int4|INT4]]),
+          flipped the result entirely — beating even the format that only compressed to
+          half (2.2x vs 1.56x).</p>
+          <p>The real compute ceiling this card reaches tops out at <b>about half</b>
+          of its [[theoretical-peak|theoretical peak]] — not a tuning gap, just the
+          real limit of this stack. See the [[roofline]] for where that ceiling sits.</p>`,
+      zh:`<p>这是全程真正的瓶颈所在：每生成一个字，都要把模型的全部[[weights|权重]]
+          从显存搬进计算单元——对一个 14 GB 的模型，这趟搬运本身
+          就要花掉每步一多半的时间（剩下的是算术），算力反而大量空闲。这一步是[[bandwidth-bound|带宽瓶颈]]。</p>
+          <p><b>压缩这些数字能不能省下搬运时间？</b>（这叫[[quantization|量化]]。）第一次尝试几乎交了白卷——
+          数字变小了（[[fp16]] → 8 位），速度却几乎没变。原因是压缩后还要在真正计算前还原回去，
+          如果这一步没有和矩阵乘法融合进同一个 GPU 操作里，省下的时间会被还原本身吃掉。
+          <b>换一条融合过的路径</b>，压缩到四分之一大小（[[int4|INT4]]），直接反超——
           比只压缩到一半的方案还快（2.2x vs 1.56x）。</p>
-          <p>这台卡真实能摸到的算力天花板，只有理论峰值的<b>约一半</b>——
-          这不是哪里没调好，是这套系统能达到的真实上限。</p>`,
+          <p>这台卡真实能摸到的算力天花板，只有[[theoretical-peak|理论峰值]]的<b>约一半</b>——
+          这不是哪里没调好，是这套系统能达到的真实上限。天花板具体在哪，看 [[roofline]]。</p>`,
     },
     stats:[
       { k:{en:"Weight size (fp16)", zh:"权重体积（fp16）"}, v:"14.2 GB", cls:"" },
@@ -620,12 +851,15 @@ const STAGES = [
             zh:"一个 token 完成，流回客户端" },
     body:{
       en:`<p>The token generated in this step gets appended to the reply that's
-          growing, and streamed back to you. This is also where the latency metrics
-          you actually feel get measured — the wait for the first word is TTFT, the
-          gap between every word after that is TPOT.</p>`,
-      zh:`<p>这一步生成的字被加进正在生长的回复里，流式发回给你。
-          这也是延迟指标真正被测量的地方——第一个字的等待叫 TTFT，
-          之后每个字之间的间隔叫 TPOT。</p>`,
+          growing, and streamed back to you — this is why ChatGPT-style answers appear
+          word by word rather than all at once. It's also where the latency numbers you
+          actually feel get measured: the wait for the first word is [[ttft|TTFT]] (it
+          ranges 49→156ms here depending on whether the prefix was cached), and the gap
+          between every word after that is [[tpot|TPOT]].</p>`,
+      zh:`<p>这一步生成的字被加进正在生长的回复里，流式发回给你——这就是为什么
+          ChatGPT 那样的回答是一个字一个字冒出来，而不是一下子全出来。
+          这也是你真正能感觉到的延迟指标被测量的地方：第一个字的等待叫 [[ttft|TTFT]]
+          （本页 49→156ms，取决于前缀有没有命中缓存），之后每个字之间的间隔叫 [[tpot|TPOT]]。</p>`,
     },
     stats:[
       { k:{en:"Time to first token (TTFT)", zh:"首字延迟（TTFT）"}, v:"49-156ms", cls:"cool" },
@@ -639,16 +873,16 @@ const STAGES = [
     title:{ en:"Repeat replay → guess → move weights → emit, until the reply is done",
             zh:"重复「重放 → 猜测 → 搬权重 → 吐字」，直到说完" },
     body:{
-      en:`<p>As long as the reply isn't finished — no stop token yet, and no length
-          limit hit — it's back to the top of this loop for another pass. A reply a
-          few hundred words long might repeat these four steps a few hundred times —
-          which is exactly why optimizations that save "just a little" per step
-          (replay, guessing, compressing the numbers) get their effect multiplied
-          hundreds of times over.</p>`,
-      zh:`<p>只要回复还没结束（没遇到停止符，也没到长度上限），
+      en:`<p>As long as the reply isn't finished — no [[stop-token|stop token]] yet, and
+          no length limit hit — it's back to the top of this loop for another pass. A
+          reply a few hundred words long repeats these four steps a few hundred times —
+          which is exactly why per-token optimizations that save "just a little"
+          (replay, guessing, compressing the numbers) get multiplied hundreds of times
+          over, while the once-per-request prefill optimizations do not.</p>`,
+      zh:`<p>只要回复还没结束（没遇到[[stop-token|停止符]]，也没到长度上限），
           就回到这个循环的开头，再走一遍。一条几百字的回复，
-          这四步可能要重复几百次——这也是为什么"每步省一点点"的优化
-          （重放、猜测、压缩数字）乘上几百次之后，效果会被放得很大。</p>`,
+          这四步要重复几百次——这也是为什么"每 token 省一点点"的优化
+          （重放、猜测、压缩数字）乘上几百次后效果被放得很大，而只发生一次的 prefill 优化不会。</p>`,
     },
   },
   {
@@ -658,12 +892,13 @@ const STAGES = [
     title:{ en:"The request finishes, and its memory blocks go back into the shared pool",
             zh:"请求结束，它占的显存块回到共享池" },
     body:{
-      en:`<p>The reply is complete. The memory blocks this request was holding get
-          freed, returning to the shared pool mentioned back at "allocate memory" —
-          ready for the next new request. The whole journey closes into a loop right
-          here.</p>`,
-      zh:`<p>回复生成完毕。这条请求占用的显存块被释放，回到最开始"分配显存"
-          那一步提到的共享池里，供下一条新请求使用——整条旅程在这里合拢成一个环。</p>`,
+      en:`<p>The reply is complete. The [[kv-cache|KV cache]] blocks this request was
+          holding get freed, returning to the shared pool from stage 3 — ready for the
+          next new request. (This is a different loop from stage 11's: that one repeats
+          per token; this closes the whole per-request journey.)</p>`,
+      zh:`<p>回复生成完毕。这条请求占用的 [[kv-cache|KV cache]] 块被释放，回到 stage 3
+          那个共享池里，供下一条新请求使用。（这跟 stage 11 的循环不是一回事：那个是每个 token 转一圈；
+          这个合拢的是整条"每个请求"的旅程。）</p>`,
     },
   },
 ];
@@ -706,6 +941,36 @@ function tv(field){
   // Accept either a plain string (language-independent) or a {en,zh} object.
   return typeof field === "string" ? field : field[LANG];
 }
+
+// Replace [[key]] or [[key|display text]] in body HTML with a clickable glossary term.
+function glossify(html){
+  return html.replace(/\[\[([a-z0-9-]+)(?:\|([^\]]+))?\]\]/g, (m, key, text) => {
+    if(!GLOSSARY[key]) return text || key;
+    return `<button type="button" class="gl-term" data-g="${key}">${text || key}</button>`;
+  });
+}
+
+// Delegated: click a glossary term -> toggle a note right after its paragraph.
+document.addEventListener("click", (e) => {
+  const term = e.target.closest(".gl-term");
+  if(!term) return;
+  const key = term.dataset.g;
+  const para = term.closest("p") || term.parentElement;
+  const existing = para.nextElementSibling;
+  const isOpenForThis = existing && existing.classList.contains("gl-note") && existing.dataset.g === key;
+
+  document.querySelectorAll(".gl-note").forEach(n => n.remove());
+  document.querySelectorAll(".gl-term.open").forEach(t => t.classList.remove("open"));
+
+  if(isOpenForThis) return;  // second click on the same term closes it
+
+  const note = document.createElement("div");
+  note.className = "gl-note";
+  note.dataset.g = key;
+  note.innerHTML = `<b>${term.textContent}</b> — ` + tv(GLOSSARY[key]);
+  para.insertAdjacentElement("afterend", note);
+  term.classList.add("open");
+});
 
 /* ---------------- build the pipeline nodes ---------------- */
 function buildPipeline(){
@@ -781,7 +1046,7 @@ function buildCards(){
         <span class="stage-tag">${tv(s.tag)}</span>
       </div>
       <h2>${tv(s.title)}</h2>
-      <div class="stage-body">${tv(s.body)}</div>
+      <div class="stage-body">${glossify(tv(s.body))}</div>
       ${statsHtml}
       <div class="mini-slot" data-mini="${s.mini||''}"></div>
       ${codeHtml}
@@ -891,6 +1156,8 @@ function renderUIText(){
   document.getElementById("t-eyebrow").textContent = tv(UI.eyebrow);
   document.getElementById("t-h1").textContent = tv(UI.h1);
   document.getElementById("t-lede").innerHTML = tv(UI.lede);
+  document.getElementById("t-primer-summary").textContent = tv(UI.primerSummary);
+  document.getElementById("t-primer-body").innerHTML = glossify(tv(UI.primerBody));
   document.getElementById("replay-btn").textContent = tv(UI.replay);
   document.getElementById("t-hint").textContent = tv(UI.hint);
   document.getElementById("t-footer").innerHTML = tv(UI.footer);
