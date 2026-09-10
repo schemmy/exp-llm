@@ -21,7 +21,7 @@ Convention: one line per week. Mark ✅ done, 🟡 partial, ❌ skipped. Add a l
 | 9  | 10-25 → 10-31 | Tensor parallelism: TP=1 vs 2 vs 4 | ✅ | TP=2 1.55x / TP=4 2.16x（效率 75% / 54%，跨 batch 恒定）；**每卡吞吐反而下降**——TP 买延迟不买性价比；KV 容量 1.05M→5.14M tokens |
 | 10 | 11-01 → 11-07 | MoE inference + expert parallelism | ✅ | **MoE 优势随 batch 蒸发**：batch=1 达小稠密速度 67%，batch=32 只剩 6%——token 被打散到 60 个专家，`M=32` 碎成 60 个 `M≈2`。**多卡在 batch=32 是负收益**：TP=2 0.84x、+EP 0.56x（对比稠密模型 TP=2 是 1.53x）。GEMM 已经太小时，加并行只会更糟 |
 | 11 | 11-08 → 11-14 | Roofline ridge point + CUDA graph + MFU/MBU + INT8/FP8 | ✅ | **CUDA graph 2.69x@b1**（原估算 1.2x 太保守，漏算 PyTorch eager 分发开销）；脊点 M≈153 落在实测 128(64.6%)-256(43.1%) 之间；MFU 封顶 ~51-52%。**FP8 量化符号反转**：带宽区 1.5x，算力区 **0.84x 净亏**，反转位置精确对上脊点。**INT8(`int8_per_channel_weight_only`) 几乎零加速**（全程 ~1.0x，`bitsandbytes` 在 vLLM v0.28 已不受支持）——同样是"减字节"但没有高效 kernel 路径承接，字节数减少≠速度提升 |
-| 12 | 11-15 → 11-21 | INT4 quantization + tradeoff table | 🟡 | 脚本就绪 `wk12_int4/int4_quant.py`（AWQ/GPTQ-Int4 via Marlin，测试 Wk11 INT8 零加速是格式问题还是 kernel 问题）；待跑 |
+| 12 | 11-15 → 11-21 | INT4 quantization + tradeoff table | ✅ | **悬念解开**：INT4 via Marlin batch=1 达 **2.20-2.23x**（比 FP8 的 1.56x 还快）——Wk11 INT8 零加速确认是 kernel 问题不是格式问题。权重 5.19 GiB (36.6%，不是理论 25%)。算力区 INT4 反而比 FP8 亏得少（0.93-0.97x vs 0.84x，预测错了）。AWQ≈GPTQ 速度（同 kernel），质量相似度低但样本检查是措辞不同不是退化 |
 | 13 | 11-22 → 11-28 | Blog #1 draft + repo README | ☐ | |
 | 14 | 11-29 → 12-05 | **Publish Blog #1** | ☐ | |
 
