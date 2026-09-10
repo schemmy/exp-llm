@@ -54,10 +54,10 @@
 
 ### Task 3 — Create the flagship benchmarks folder (30 min)
 
-- [x] Decided to keep everything under `mle-transition/` rather than a separate repo — simpler, one public link
+- [x] Decided to keep everything under `exp-llm/` rather than a separate repo — simpler, one public link
 - [x] Created `benchmarks/README.md` with baseline table and 12-week roadmap
 - [x] Experiment scripts already committed under `experiments/wk01_env_check/`
-- [x] Repo is public at github.com/schemmy/mle-transition
+- [x] Repo is public at github.com/schemmy/exp-llm
 
 **Success**: `benchmarks/README.md` is live with the HF baseline number. ✅ Done 2026-08-30.
 
@@ -77,7 +77,7 @@
 
 ### Task 5 — Log the week (10 min)
 
-- [ ] Open `~/projects/mle-transition/progress.md`
+- [ ] Open `~/projects/exp-llm/progress.md`
 - [ ] Update Wk 1 row: status ✅ (or 🟡 with note if you didn't finish everything)
 - [ ] Add repo link to the artifact column
 - [ ] Add one sentence to the "Global log" section: any realizations, surprises, blockers
