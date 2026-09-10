@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一个请求的旅程</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ground:#0E141B;
+    --surface:#161F2A;
+    --surface-2:#1E2936;
+    --line:#2A3846;
+    --line-soft:#213040;
+    --text:#DCE5EE;
+    --dim:#8496A8;
+    --faint:#5D7188;
+
+    --compute:#F0883E;
+    --compute-soft:#5A3A1E;
+    --bandwidth:#4CA6E0;
+    --bandwidth-soft:#1B354A;
+    --hit:#56D68A;
+    --hit-soft:#1C3E2C;
+    --reject:#E05C5C;
+    --measured:#B98BE0;
+    --idle:#313E4C;
+
+    --sans:"IBM Plex Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --display:"Archivo","IBM Plex Sans","PingFang SC","Hiragino Sans GB",sans-serif;
+    --mono:"IBM Plex Mono","SF Mono",Menlo,monospace;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--ground);color:var(--text);
+    font-family:var(--sans);font-size:16px;line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+  /* ---------- header ---------- */
+  header{
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#111A24 0%,var(--ground) 100%);
+    padding:52px 0 40px;
+  }
+  .eyebrow{
+    font-family:var(--mono);font-size:11px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--faint);margin:0 0 14px;
+  }
+  h1{
+    font-family:var(--display);font-weight:800;
+    font-size:clamp(30px,5vw,48px);letter-spacing:-.02em;line-height:1.08;
+    margin:0 0 16px;text-wrap:balance;
+  }
+  .lede{max-width:66ch;color:var(--dim);font-size:17px;margin:0}
+  .lede b{color:var(--text);font-weight:500}
+
+  /* ---------- pipeline stage ---------- */
+  .pipeline-wrap{
+    padding:44px 0 8px;border-bottom:1px solid var(--line-soft);
+    position:sticky;top:0;z-index:30;background:rgba(14,20,27,.97);
+    backdrop-filter:blur(10px);
+  }
+  .pipeline-controls{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+  .pipeline-controls button{
+    font-family:var(--mono);font-size:12px;font-weight:500;color:var(--text);
+    background:var(--surface-2);border:1px solid var(--line);border-radius:5px;
+    padding:7px 14px;cursor:pointer;transition:background .15s,border-color .15s;
+  }
+  .pipeline-controls button:hover{background:#26333F;border-color:#3A4A5A}
+  .pipeline-controls button:focus-visible{outline:2px solid var(--bandwidth);outline-offset:2px}
+  .pipeline-hint{font-family:var(--mono);font-size:11px;color:var(--faint)}
+
+  .pipeline{
+    position:relative;overflow-x:auto;overflow-y:visible;
+    padding:8px 4px 20px;
+  }
+  .track{
+    display:flex;align-items:flex-start;gap:0;min-width:max-content;position:relative;
+  }
+  .node{
+    display:flex;flex-direction:column;align-items:center;gap:8px;
+    width:112px;flex:none;cursor:pointer;padding:4px 2px;
+    background:none;border:none;font-family:inherit;color:inherit;
+  }
+  .node:focus-visible{outline:2px solid var(--bandwidth);outline-offset:3px;border-radius:8px}
+  .node-dot{
+    width:40px;height:40px;border-radius:50%;
+    background:var(--surface-2);border:2px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:13px;font-weight:600;color:var(--dim);
+    transition:all .2s;position:relative;z-index:2;
+  }
+  .node.active .node-dot{
+    border-color:var(--bandwidth);color:var(--bandwidth);
+    background:var(--bandwidth-soft);
+    box-shadow:0 0 0 4px rgba(76,166,224,.15);
+  }
+  .node.compute .node-dot{border-color:var(--compute)}
+  .node.compute.active .node-dot{
+    color:var(--compute);background:var(--compute-soft);
+    box-shadow:0 0 0 4px rgba(240,136,62,.15);
+  }
+  .node-label{
+    font-family:var(--mono);font-size:10.5px;color:var(--dim);text-align:center;
+    line-height:1.3;min-height:28px;
+  }
+  .node.active .node-label{color:var(--text);font-weight:500}
+
+  .connector{
+    flex:none;width:28px;height:40px;display:flex;align-items:center;margin-top:0;
+    position:relative;top:0;
+  }
+  .connector svg{width:100%;height:2px;display:block}
+  .connector line{stroke:var(--line);stroke-width:2}
+
+  /* the "runs every token" loop grouping */
+  .loop-box{
+    position:relative;display:flex;align-items:flex-start;
+    border:1.5px dashed var(--measured);border-radius:14px;
+    padding:14px 10px 6px;margin:0 6px;background:rgba(185,139,224,.04);
+  }
+  .loop-tag{
+    position:absolute;top:-11px;left:50%;transform:translateX(-50%);
+    background:var(--ground);padding:0 10px;
+    font-family:var(--mono);font-size:10px;color:var(--measured);
+    letter-spacing:.06em;white-space:nowrap;
+  }
+  .loop-return{
+    position:absolute;bottom:-2px;left:14px;right:14px;height:22px;
+    pointer-events:none;
+  }
+
+  /* packet marker that travels along the pipeline */
+  .packet{
+    position:absolute;top:22px;width:14px;height:14px;border-radius:50%;
+    background:var(--measured);box-shadow:0 0 10px 2px rgba(185,139,224,.6);
+    transform:translate(-50%,-50%);transition:left 0s;z-index:5;
+    opacity:0;pointer-events:none;
+  }
+  .packet.on{opacity:1}
+
+  /* ---------- detail cards ---------- */
+  main{padding:44px 0 80px}
+  .stage-card{
+    padding:40px 0;border-bottom:1px solid var(--line-soft);
+    scroll-margin-top:200px;
+  }
+  .stage-card:last-child{border-bottom:0}
+  .stage-card.flash{animation:flash 1.1s ease}
+  @keyframes flash{
+    0%{background:rgba(76,166,224,.08)}
+    100%{background:transparent}
+  }
+
+  .stage-kicker{
+    display:flex;align-items:center;gap:10px;margin-bottom:10px;
+  }
+  .stage-num{
+    font-family:var(--mono);font-size:11px;font-weight:600;
+    color:var(--ground);background:var(--dim);padding:2px 8px;border-radius:3px;
+  }
+  .stage-num.compute{background:var(--compute)}
+  .stage-num.bandwidth{background:var(--bandwidth)}
+  .stage-tag{
+    font-family:var(--mono);font-size:10.5px;color:var(--faint);
+    letter-spacing:.06em;text-transform:uppercase;
+  }
+  .stage-card h2{
+    font-family:var(--display);font-weight:700;
+    font-size:clamp(21px,3vw,27px);margin:0 0 14px;letter-spacing:-.01em;
+  }
+  .stage-body{max-width:70ch;color:var(--dim);font-size:15.5px}
+  .stage-body p{margin:0 0 12px}
+  .stage-body b{color:var(--text);font-weight:500}
+  .stage-body code{
+    font-family:var(--mono);font-size:.88em;background:var(--surface-2);
+    padding:1px 5px;border-radius:3px;color:var(--text);
+  }
+
+  .statline{
+    display:flex;gap:28px;flex-wrap:wrap;margin:18px 0 4px;
+    padding:16px 18px;background:var(--surface);border:1px solid var(--line);
+    border-radius:8px;max-width:70ch;
+  }
+  .stat{display:flex;flex-direction:column;gap:4px}
+  .stat-k{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .stat-v{font-family:var(--mono);font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+  .stat-v.good{color:var(--hit)}
+  .stat-v.bad{color:var(--reject)}
+  .stat-v.warm{color:var(--compute)}
+  .stat-v.cool{color:var(--bandwidth)}
+
+  .mini{
+    margin-top:20px;background:var(--surface);border:1px solid var(--line);
+    border-radius:8px;padding:18px 20px;max-width:70ch;
+  }
+
+  /* small reusable visuals */
+  .qtimeline{display:flex;flex-direction:column;gap:6px}
+  .qrow{display:flex;align-items:center;gap:10px}
+  .qrow-label{font-family:var(--mono);font-size:10.5px;color:var(--faint);width:74px;flex:none}
+  .qtrack{position:relative;flex:1;height:14px;background:var(--surface-2);border-radius:3px;overflow:hidden}
+  .qseg{position:absolute;top:0;height:100%;border-radius:3px}
+
+  .memgrid{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;margin-top:4px}
+  .memcell{aspect-ratio:1;border-radius:1px;background:var(--surface-2)}
+
+  .barrow{display:flex;align-items:center;gap:10px;margin:6px 0}
+  .barrow-label{font-family:var(--mono);font-size:10.5px;color:var(--faint);width:96px;flex:none}
+  .bartrack{flex:1;height:16px;background:var(--surface-2);border-radius:3px;overflow:hidden}
+  .barfill{height:100%;border-radius:3px}
+  .barval{font-family:var(--mono);font-size:11px;color:var(--text);width:64px;text-align:right;flex:none}
+
+  footer{padding:40px 0 64px;color:var(--faint);font-size:13px;border-top:1px solid var(--line-soft)}
+  footer a{color:var(--dim)}
+  footer code{font-family:var(--mono);font-size:12px}
+
+  @media (prefers-reduced-motion:reduce){
+    *{transition-duration:.01ms !important;animation-duration:.01ms !important}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <p class="eyebrow">Qwen2.5-7B-Instruct · A100 80GB · vLLM · 全部数据可复现</p>
+    <h1>一个请求的旅程</h1>
+    <p class="lede">
+      从你按下发送，到第一个字出现，再到第两百个字出现——中间发生了十二件事。
+      有的只发生一次，有的每个字都要重来一遍。<b>点下面时间线上的任意一站，
+      往下看细节；不点也行，自动播放会带你走一遍全程。</b>
+    </p>
+  </div>
+</header>
+
+<div class="pipeline-wrap">
+  <div class="wrap">
+    <div class="pipeline-controls">
+      <button id="replay-btn">▶ 重新播放全程</button>
+      <span class="pipeline-hint">或者直接点任意一站</span>
+    </div>
+    <div class="pipeline">
+      <div class="track" id="track"><!-- populated by JS --></div>
+      <div class="packet" id="packet"></div>
+    </div>
+  </div>
+</div>
+
+<main class="wrap" id="stages"><!-- populated by JS --></main>
+
+<footer class="wrap">
+  <p>
+    数据来自 <code>benchmarks/README.md</code>，Qwen2.5-7B-Instruct，A100-80GB，fp16，vLLM ·
+    全部实验可复现：<code>modal run experiments/wkXX_*/*.py</code> ·
+    另见 <a href="phase1.html">按主题拆解的交互图</a> 和
+    <a href="week11_roofline.html">roofline 深潜</a>
+  </p>
+</footer>
+
+<script>
+(function(){
+"use strict";
+const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------------- stage definitions ---------------- */
+const STAGES = [
+  {
+    id:"arrive", label:"请求到达", kind:"io",
+    title:"一个 prompt，发往一台正在服务其他一百个人的机器",
+    tag:"每个请求一次",
+    body:`
+      <p>你的 prompt 离开客户端，落到一台 GPU 服务器上——这台卡此刻大概率正在
+      同时服务几十个甚至上百个别人的请求。它不会等你，也不会为你单独腾出时间。</p>
+      <p>接下来的每一步，都是这台共享的卡在琢磨："怎么把这条新请求塞进正在
+      发生的事情里，代价最小。"</p>`,
+  },
+  {
+    id:"queue", label:"排队还是插队", kind:"io",
+    title:"等齐一批再一起跑，还是随到随处理？",
+    tag:"每个请求一次",
+    body:`
+      <p>最直觉的做法是攒够一批请求再一起提交——听起来像是在给 GPU 更多东西一次性处理。
+      <b>实测下来几乎是幻觉</b>：端到端吞吐几乎没变（717 → 705 tok/s），
+      但攒批期间白白流逝的等待，让 P50 延迟差了 2.6 倍。</p>
+      <p>GPU 从来不缺算力，缺的是"别让先来的人等后来的人"。让引擎随到随处理、
+      随走随补位（连续批处理），问题就解决了——不是给 GPU 更多工作，
+      是不再制造不必要的等待。</p>`,
+    stats:[
+      {k:"静态攒批 P50", v:"6.36s", cls:"bad"},
+      {k:"连续批处理 P50", v:"2.41s", cls:"good"},
+      {k:"吞吐差异", v:"几乎为零", cls:""},
+    ],
+    mini:"queue",
+  },
+  {
+    id:"memory", label:"分配显存", kind:"io",
+    title:"没人知道这条请求会说多久，显存却要提前占位",
+    tag:"每个请求一次",
+    body:`
+      <p>每条请求都要占一块显存，记录它到目前为止生成过的全部内容（KV cache）。
+      问题是没人知道它会说 10 个字还是 1000 个字——按最坏情况预留，
+      <b>实测浪费掉 60-80% 的显存</b>，装着永远用不到的空位。</p>
+      <p>解法照搬操作系统管虚拟内存的办法：不整块预留，按 16-token 的小块按需发放，
+      物理位置随便放，靠一张表记录映射。碎片率从 60-80% 降到 &lt;4%——
+      省下的显存直接换成更多能同时服务的请求。</p>`,
+    stats:[
+      {k:"碎片率（分块前）", v:"60-80%", cls:"bad"},
+      {k:"碎片率（分块后）", v:"<4%", cls:"good"},
+      {k:"batch 1→32 吞吐", v:"近线性", cls:"good"},
+    ],
+    mini:"memory",
+  },
+  {
+    id:"prefix", label:"查缓存", kind:"io",
+    title:"这段开头，是不是已经有人问过了？",
+    tag:"每个请求一次",
+    body:`
+      <p>显存现在是按小块管理的，这带来一个额外的机会：如果这条请求的开头
+      （同一份系统提示词、同一篇被反复引用的文档）跟之前某条请求的开头
+      逐 token 完全一样，那部分根本不用重新算——直接复用已经算好的块。</p>
+      <p>32 条请求共享约 500 token 前缀的实测：命中缓存后，
+      <b>首字延迟从 829ms 降到 156ms</b>，省下的算力全部转去生成更多 token，
+      吞吐反而涨了。代价是必须逐 token 完全匹配——差一个字就全部重算。</p>`,
+    stats:[
+      {k:"首字延迟（未命中）", v:"829ms", cls:"bad"},
+      {k:"首字延迟（命中）", v:"156ms", cls:"good"},
+      {k:"加速比", v:"5.3x", cls:"good"},
+    ],
+    mini:"prefix",
+  },
+  {
+    id:"prefill", label:"Prefill", kind:"compute",
+    title:"整段 prompt 一次算完——这是全程唯一算力吃满的时刻",
+    tag:"每个请求一次 · 算力密集",
+    body:`
+      <p>没被缓存命中的那部分 prompt，现在要真正过一遍模型——一次性、
+      并行地算完所有 token，这是全程唯一一个 GPU 张量核心被真正喂饱的阶段。
+      短 prompt 的 prefill 快到几乎察觉不到；长 prompt（几千 token）的 prefill
+      可能要占掉整个请求延迟的大头。</p>
+      <p>这也是为什么短 prompt 很难把 GPU 打满——prefill 一晃而过，
+      大部分时间花在下一步：一个字一个字往外吐。</p>`,
+  },
+  {
+    id:"split", label:"这张卡装得下吗", kind:"compute",
+    title:"模型太大，一张卡放不下时会发生什么",
+    tag:"仅大模型 · 每个请求一次",
+    body:`
+      <p><b>把每一层的权重切开分给几张卡</b>：每张卡只需搬运自己那一份权重，
+      两张卡实测延迟从 10.3ms 降到 6.6ms——但每层算完要汇总，
+      这一步通信吃掉了理论收益的一部分（2 卡 1.55x，4 卡 2.16x，
+      不是 2x/4x）。更关键的是<b>每张卡的实际产出在下降</b>——
+      四张卡卖力气换来的吞吐，不如四个独立单卡实例。切卡买的是"装得下"
+      和更低延迟，不是性价比。</p>
+      <p><b>如果模型天生只用一部分参数（混合专家）</b>：显存要按全部专家算，
+      速度却只看真正用到的那几个——听起来像白捡便宜。实测在并发低时确实接近
+      白捡（达到同等小模型速度的 67%），但<b>并发一高这个优势几乎完全蒸发</b>
+      （只剩 6%）——请求被打散到几十个专家上，每个专家分到的计算量太小，
+      喂不饱张量核心。批处理是这类模型唯一吃不到的红利。</p>`,
+    stats:[
+      {k:"TP=4 加速比", v:"2.16x", cls:""},
+      {k:"TP=4 每卡吞吐", v:"↓ 到 53%", cls:"bad"},
+      {k:"MoE 高并发优势", v:"6%（vs 67% 低并发）", cls:"bad"},
+    ],
+  },
+  {
+    id:"replay", label:"重放，不重发", kind:"loop",
+    title:"同样的指令序列，录一次，之后直接重放",
+    tag:"每个 token 一次",
+    body:`
+      <p>生成每个 token 要给 GPU 发几百条指令，每条都有微秒级的 CPU 开销——
+      加起来能占掉一大块本该用来等数据的时间。解法是把这串指令<b>录制成一张图</b>，
+      之后整体重放，不用每次都重新发号施令。</p>
+      <p>凭直觉估算这值多少，猜的是 20% 左右。<b>实测是 2.69x</b>——
+      漏算的是 Python 框架本身的调度开销，往往比纯指令发送更贵。</p>`,
+    stats:[
+      {k:"预估收益", v:"~1.2x", cls:""},
+      {k:"实测收益（batch=1）", v:"2.69x", cls:"good"},
+    ],
+  },
+  {
+    id:"guess", label:"先猜，再核对", kind:"loop",
+    title:"用小模型先猜几步，大模型一次性核对",
+    tag:"每个 token 一次（有时）",
+    body:`
+      <p>生成 token 时，GPU 大部分时间在等数据，算力基本空闲。
+      既然如此，能不能先猜接下来几个字，再用一次前向传播<b>并行核对</b>
+      这些猜测？核对的成本几乎等于生成一个字的成本——反正瓶颈从来不是算，
+      是搬数据。</p>
+      <p>第一次测试只快了 8%——远低于预期。<b>换一个更容易被猜中的任务
+      （原文照抄 vs 自由改写）</b>，答案揭晓：猜没猜中，才是唯一决定成败的变量。
+      照抄任务：2.78x；自由改写任务：高并发下甚至净亏 15%。</p>`,
+    stats:[
+      {k:"命中率高（照抄）", v:"2.78x", cls:"good"},
+      {k:"命中率低 + 高并发", v:"0.85x 净亏", cls:"bad"},
+    ],
+    mini:"guess",
+  },
+  {
+    id:"weights", label:"权重下线", kind:"loop compute",
+    title:"每个字都要把整个模型重新搬一遍",
+    tag:"每个 token 一次 · 带宽密集",
+    body:`
+      <p>这是全程真正的瓶颈所在：每生成一个字，都要把模型的全部权重
+      从显存搬进计算单元——对一个 140 亿字节量级的模型，这趟搬运本身
+      就要花掉每步一多半的时间，算力反而大量空闲。</p>
+      <p><b>压缩这些数字能不能省下搬运时间？</b>第一次尝试几乎交了白卷——
+      数字变小了，速度却几乎没变。原因是压缩后还要在真正计算前还原回去，
+      如果这一步没有和矩阵乘法融合在一起，省下的时间会被还原本身吃掉。
+      <b>换一条融合过的执行路径</b>，压缩到四分之一大小，直接反超——
+      比只压缩到一半的方案还快（2.2x vs 1.56x）。</p>
+      <p>这台卡真实能摸到的算力天花板，只有理论峰值的<b>约一半</b>——
+      这不是哪里没调好，是这套系统能达到的真实上限。</p>`,
+    stats:[
+      {k:"权重体积（fp16）", v:"14.2 GB", cls:""},
+      {k:"压缩到 1/4 + 融合 kernel", v:"2.2x", cls:"good"},
+      {k:"压缩到 1/2，未融合", v:"~1.0x（零收益）", cls:"bad"},
+      {k:"实测算力天花板", v:"~52%（非理论 100%）", cls:"warm"},
+    ],
+    mini:"roofline",
+  },
+  {
+    id:"stream", label:"吐出一个字", kind:"loop",
+    title:"一个 token 完成，流回客户端",
+    tag:"每个 token 一次",
+    body:`
+      <p>这一步生成的字被加进正在生长的回复里，流式发回给你。
+      这也是延迟指标真正被测量的地方——第一个字的等待叫 TTFT，
+      之后每个字之间的间隔叫 TPOT。</p>`,
+    stats:[
+      {k:"首字延迟（TTFT）", v:"49-156ms", cls:"cool"},
+      {k:"逐字间隔（TPOT）", v:"~10-12ms", cls:"cool"},
+    ],
+  },
+  {
+    id:"loopback", label:"没说完？回到上一步", kind:"loop",
+    title:"重复「重放 → 猜测 → 搬权重 → 吐字」，直到说完",
+    tag:"循环",
+    body:`
+      <p>只要回复还没结束（没遇到停止符，也没到长度上限），
+      就回到这个循环的开头，再走一遍。一条几百字的回复，
+      这四步可能要重复几百次——这也是为什么"每步省一点点"的优化
+      （重放、猜测、压缩数字）乘上几百次之后，效果会被放得很大。</p>`,
+  },
+  {
+    id:"done", label:"完成，归还显存", kind:"io",
+    title:"请求结束，它占的显存块回到共享池",
+    tag:"每个请求一次",
+    body:`
+      <p>回复生成完毕。这条请求占用的显存块被释放，回到最开始"分配显存"
+      那一步提到的共享池里，供下一条新请求使用——整条旅程在这里合拢成一个环。</p>`,
+  },
+];
+
+/* ---------------- build the pipeline nodes ---------------- */
+const track = document.getElementById("track");
+const stagesEl = document.getElementById("stages");
+const packet = document.getElementById("packet");
+
+function svgLine(){
+  return `<svg viewBox="0 0 28 2" preserveAspectRatio="none"><line x1="0" y1="1" x2="28" y2="1"/></svg>`;
+}
+
+let loopOpen = false;
+STAGES.forEach((s, i) => {
+  // Connector placement must use the container state as it stood at the end
+  // of the *previous* iteration -- computing it after this node's own
+  // loop-open/close mutations below would file the connector into the wrong
+  // parent (e.g. the line leading into the loop box would land after the
+  // box in the DOM instead of before it).
+  if(i > 0){
+    const c = document.createElement("div");
+    c.className = "connector";
+    c.innerHTML = svgLine();
+    (loopOpen ? document.getElementById("loop-box") : track).appendChild(c);
+  }
+
+  const willEnterLoop = s.kind.includes("loop") && !loopOpen;
+  if(willEnterLoop){
+    const box = document.createElement("div");
+    box.className = "loop-box";
+    box.id = "loop-box";
+    track.appendChild(box);
+    loopOpen = true;
+  }
+
+  const parent = loopOpen ? document.getElementById("loop-box") : track;
+  const btn = document.createElement("button");
+  btn.className = "node" + (s.kind.includes("compute") ? " compute" : "");
+  btn.dataset.stage = s.id;
+  btn.innerHTML = `<span class="node-dot">${i+1}</span><span class="node-label">${s.label}</span>`;
+  btn.addEventListener("click", () => goTo(s.id, true));
+  parent.appendChild(btn);
+
+  if(s.id === "loopback"){
+    const tag = document.createElement("div");
+    tag.className = "loop-tag";
+    tag.textContent = "每个 token 重复一次";
+    document.getElementById("loop-box").appendChild(tag);
+    loopOpen = false;
+  }
+});
+
+/* ---------------- build the detail cards ---------------- */
+STAGES.forEach((s, i) => {
+  const card = document.createElement("section");
+  card.className = "stage-card";
+  card.id = "card-" + s.id;
+
+  let statsHtml = "";
+  if(s.stats){
+    statsHtml = `<div class="statline">` + s.stats.map(st =>
+      `<div class="stat"><div class="stat-k">${st.k}</div><div class="stat-v ${st.cls||''}">${st.v}</div></div>`
+    ).join("") + `</div>`;
+  }
+
+  const numCls = s.kind.includes("compute") ? "compute" : (s.kind.includes("loop") ? "bandwidth" : "");
+
+  card.innerHTML = `
+    <div class="stage-kicker">
+      <span class="stage-num ${numCls}">${String(i+1).padStart(2,"0")}</span>
+      <span class="stage-tag">${s.tag}</span>
+    </div>
+    <h2>${s.title}</h2>
+    <div class="stage-body">${s.body}</div>
+    ${statsHtml}
+    <div class="mini-slot" data-mini="${s.mini||''}"></div>
+  `;
+  stagesEl.appendChild(card);
+});
+
+/* ---------------- mini visuals ---------------- */
+function buildMini(slot, kind){
+  if(!kind) return;
+  const box = document.createElement("div");
+  box.className = "mini";
+
+  if(kind === "queue"){
+    box.innerHTML = `
+      <div class="qtimeline">
+        <div class="qrow"><span class="qrow-label">静态攒批</span>
+          <div class="qtrack"><div class="qseg" style="left:0;width:70%;background:var(--idle)"></div><div class="qseg" style="left:70%;width:30%;background:var(--bandwidth)"></div></div>
+        </div>
+        <div class="qrow"><span class="qrow-label">连续批处理</span>
+          <div class="qtrack"><div class="qseg" style="left:8%;width:22%;background:var(--hit)"></div></div>
+        </div>
+      </div>
+      <p style="margin:12px 0 0;font-family:var(--mono);font-size:11px;color:var(--faint)">
+        灰色=等待　蓝色/绿色=真正执行 —— 同样的工作量，连续批处理几乎不等待</p>`;
+  }
+
+  if(kind === "memory"){
+    const cells = Array.from({length:48}, (_,i) => {
+      const used = i < 30 && (i%6<4);
+      const colors = ["#4CA6E0","#56D68A","#F0883E","#B98BE0"];
+      const c = used ? colors[Math.floor(i/8)%4] : "var(--idle)";
+      return `<div class="memcell" style="background:${used?c:'var(--surface-2)'}"></div>`;
+    }).join("");
+    box.innerHTML = `
+      <div class="memgrid">${cells}</div>
+      <p style="margin:12px 0 0;font-family:var(--mono);font-size:11px;color:var(--faint)">
+        彩色块=不同请求占用的显存页　灰色=空闲、可立即分配给新请求</p>`;
+  }
+
+  if(kind === "prefix"){
+    box.innerHTML = `
+      <div class="barrow"><span class="barrow-label">未命中缓存</span>
+        <div class="bartrack"><div class="barfill" style="width:98%;background:var(--reject)"></div></div>
+        <span class="barval">829 ms</span></div>
+      <div class="barrow"><span class="barrow-label">命中缓存</span>
+        <div class="bartrack"><div class="barfill" style="width:19%;background:var(--hit)"></div></div>
+        <span class="barval">156 ms</span></div>`;
+  }
+
+  if(kind === "guess"){
+    box.innerHTML = `
+      <div class="barrow"><span class="barrow-label">照抄任务</span>
+        <div class="bartrack"><div class="barfill" style="width:92%;background:var(--hit)"></div></div>
+        <span class="barval">2.78x</span></div>
+      <div class="barrow"><span class="barrow-label">自由改写</span>
+        <div class="bartrack"><div class="barfill" style="width:28%;background:var(--reject)"></div></div>
+        <span class="barval">0.85x</span></div>`;
+  }
+
+  if(kind === "roofline"){
+    box.innerHTML = `
+      <div class="barrow"><span class="barrow-label">fp16 基线</span>
+        <div class="bartrack"><div class="barfill" style="width:45%;background:var(--idle)"></div></div>
+        <span class="barval">1.00x</span></div>
+      <div class="barrow"><span class="barrow-label">压缩 1/2，未融合</span>
+        <div class="bartrack"><div class="barfill" style="width:46%;background:var(--faint)"></div></div>
+        <span class="barval">1.03x</span></div>
+      <div class="barrow"><span class="barrow-label">压缩 1/2，融合</span>
+        <div class="bartrack"><div class="barfill" style="width:70%;background:var(--bandwidth)"></div></div>
+        <span class="barval">1.56x</span></div>
+      <div class="barrow"><span class="barrow-label">压缩 1/4，融合</span>
+        <div class="bartrack"><div class="barfill" style="width:99%;background:var(--hit)"></div></div>
+        <span class="barval">2.20x</span></div>`;
+  }
+
+  slot.appendChild(box);
+}
+document.querySelectorAll(".mini-slot").forEach(slot => buildMini(slot, slot.dataset.mini));
+
+/* ---------------- interaction: click node -> highlight + scroll ---------------- */
+function setActive(id){
+  document.querySelectorAll(".node").forEach(n => n.classList.toggle("active", n.dataset.stage === id));
+}
+
+function goTo(id, scroll){
+  setActive(id);
+  if(scroll){
+    const card = document.getElementById("card-" + id);
+    card.scrollIntoView({behavior: reduced ? "auto" : "smooth", block: "start"});
+    card.classList.remove("flash");
+    void card.offsetWidth;
+    card.classList.add("flash");
+  }
+}
+
+/* ---------------- auto-play the journey once on load ---------------- */
+function positionPacketAt(id){
+  const node = document.querySelector(`.node[data-stage="${id}"] .node-dot`);
+  const pipelineEl = document.querySelector(".pipeline");
+  if(!node) return;
+  const nodeRect = node.getBoundingClientRect();
+  const pipeRect = pipelineEl.getBoundingClientRect();
+  const left = nodeRect.left - pipeRect.left + pipelineEl.scrollLeft + nodeRect.width/2;
+  packet.style.left = left + "px";
+}
+
+function autoplay(){
+  packet.classList.add("on");
+  let i = 0;
+  const order = STAGES.map(s => s.id);
+  const step = () => {
+    if(i >= order.length){ return; }
+    positionPacketAt(order[i]);
+    setActive(order[i]);
+    i++;
+  };
+  step();
+  const timer = setInterval(() => {
+    step();
+    if(i >= order.length) clearInterval(timer);
+  }, reduced ? 30 : 420);
+}
+
+document.getElementById("replay-btn").addEventListener("click", () => {
+  document.getElementById("card-arrive").scrollIntoView({behavior: reduced ? "auto" : "smooth"});
+  autoplay();
+});
+
+window.addEventListener("resize", () => {
+  const active = document.querySelector(".node.active");
+  if(active) positionPacketAt(active.dataset.stage);
+});
+
+// kick off once fonts/layout settle
+window.addEventListener("load", () => setTimeout(autoplay, 300));
+})();
+</script>
+</body>
+</html>
