@@ -213,6 +213,15 @@
     border-radius:8px;padding:18px 20px;max-width:70ch;
   }
 
+  .code-link{
+    display:inline-flex;align-items:center;gap:7px;margin-top:14px;
+    font-family:var(--mono);font-size:12px;color:var(--faint);
+    text-decoration:none;border-bottom:1px dashed var(--line);
+    padding-bottom:1px;transition:color .15s,border-color .15s;
+  }
+  .code-link:hover{color:var(--bandwidth);border-color:var(--bandwidth)}
+  .code-link svg{width:13px;height:13px;flex:none;opacity:.7}
+
   /* small reusable visuals */
   .qtimeline{display:flex;flex-direction:column;gap:6px}
   .qrow{display:flex;align-items:center;gap:10px}
@@ -296,6 +305,7 @@ const UI = {
   replay:     { en:"▶ Replay the journey", zh:"▶ 重新播放全程" },
   hint:       { en:"or click any stage directly", zh:"或者直接点任意一站" },
   loopTag:    { en:"repeats once per token", zh:"每个 token 重复一次" },
+  viewCode:   { en:"View the experiment", zh:"查看实验代码" },
   footer:     { en:`Data from <code>benchmarks/README.md</code>, Qwen2.5-7B-Instruct, A100-80GB,
                     fp16, vLLM · every experiment is reproducible:
                     <code>modal run experiments/wkXX_*/*.py</code> · also see the
@@ -338,24 +348,38 @@ const STAGES = [
           it feels like handing the GPU more to chew on at once. <b>Measured, that
           intuition is almost entirely wrong</b>: end-to-end throughput barely changed
           (717 → 705 tok/s), but the time wasted waiting to fill the batch left median
-          latency 2.6x worse.</p>
+          latency 2.6x worse, and the tail (P99) nearly 2.1x worse.</p>
           <p>The GPU was never short on capacity — the problem was making early
           arrivals wait for late ones. Let the engine admit and retire requests
           continuously, and the fix isn't giving the GPU more work. It's removing
-          waiting that never needed to happen.</p>`,
+          waiting that never needed to happen.</p>
+          <p>The sharpest evidence for that: once the static batch actually starts
+          running, its own raw compute throughput is <b>higher</b>, not lower — 1,555
+          tok/s, more than double continuous batching's steady 705. Every bit of the
+          loss sits in the 4.4-second wait to collect the batch in the first place.
+          The compute was never the problem.</p>`,
       zh:`<p>最直觉的做法是攒够一批请求再一起提交——听起来像是在给 GPU 更多东西一次性处理。
           <b>实测下来几乎是幻觉</b>：端到端吞吐几乎没变（717 → 705 tok/s），
-          但攒批期间白白流逝的等待，让 P50 延迟差了 2.6 倍。</p>
+          但攒批期间白白流逝的等待，让 P50 延迟差了 2.6 倍，P99 尾部延迟差了近 2.1 倍。</p>
           <p>GPU 从来不缺算力，缺的是"别让先来的人等后来的人"。让引擎随到随处理、
           随走随补位（连续批处理），问题就解决了——不是给 GPU 更多工作，
-          是不再制造不必要的等待。</p>`,
+          是不再制造不必要的等待。</p>
+          <p>最直接的证据：静态批处理一旦真正开始跑，纯计算段的吞吐反而<b>更高</b>——
+          批次内部能到 1,555 tok/s，是连续批处理稳态速度（705）的两倍还多。
+          差距全部出在攒批前那 4.4 秒的等待——从来不是算力的问题。</p>`,
     },
     stats:[
       { k:{en:"Static-batch P50", zh:"静态攒批 P50"}, v:"6.36s", cls:"bad" },
       { k:{en:"Continuous-batch P50", zh:"连续批处理 P50"}, v:"2.41s", cls:"good" },
-      { k:{en:"Throughput difference", zh:"吞吐差异"}, v:{en:"nearly zero", zh:"几乎为零"}, cls:"" },
+      { k:{en:"Static-batch P99", zh:"静态攒批 P99"}, v:"8.18s", cls:"bad" },
+      { k:{en:"Continuous-batch P99", zh:"连续批处理 P99"}, v:"3.91s", cls:"good" },
+      { k:{en:"Static batch's own compute", zh:"静态攒批纯计算段吞吐"}, v:"1,555 tok/s", cls:"warm" },
+      { k:{en:"Collection wait (the real cost)", zh:"攒批等待（真正的代价）"}, v:"4.4s", cls:"bad" },
     ],
     mini:"queue",
+    codeNote:{ en:"32 requests, Poisson arrivals (mean 0.2s), 50-300 output tokens each.",
+               zh:"32 条请求，泊松到达（均值 0.2s），每条输出 50-300 token。" },
+    code:"https://github.com/schemmy/exp-llm/blob/main/experiments/wk05_continuous_batching/cb_vs_static.py",
   },
   {
     id:"memory", kind:"io",
@@ -739,6 +763,18 @@ function buildCards(){
 
     const numCls = s.kind.includes("compute") ? "compute" : (s.kind.includes("loop") ? "bandwidth" : "");
 
+    let codeHtml = "";
+    if(s.code){
+      const noteHtml = s.codeNote
+        ? `<div class="mini-caption" style="margin:14px 0 0">${tv(s.codeNote)}</div>` : "";
+      codeHtml = `
+        ${noteHtml}
+        <a class="code-link" href="${s.code}" target="_blank" rel="noopener">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 4L1 8l4 4M11 4l4 4-4 4"/></svg>
+          ${tv(UI.viewCode)}
+        </a>`;
+    }
+
     card.innerHTML = `
       <div class="stage-kicker">
         <span class="stage-num ${numCls}">${String(i+1).padStart(2,"0")}</span>
@@ -748,6 +784,7 @@ function buildCards(){
       <div class="stage-body">${tv(s.body)}</div>
       ${statsHtml}
       <div class="mini-slot" data-mini="${s.mini||''}"></div>
+      ${codeHtml}
     `;
     stagesEl.appendChild(card);
   });
