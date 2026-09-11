@@ -677,6 +677,9 @@ const STAGES = [
           表把这件事藏起来了。浪费的显存从 60-80% 降到 &lt;4%，腾出来的空间
           直接换成更多能同时服务的请求。</p>`,
     },
+    codeNote:{ en:"Fragmentation numbers are from the PagedAttention paper; the near-linear batch 1→32 throughput below is measured on this stack.",
+               zh:"碎片率数字来自 PagedAttention 论文；下面 batch 1→32 的近线性吞吐是本仓库实测。" },
+    code:"https://github.com/schemmy/exp-llm/blob/main/experiments/wk04_batch_sweep/batch_sweep.py",
     stats:[
       { k:{en:"Fragmentation (before paging)", zh:"碎片率（分块前）"}, v:"60-80%", cls:"bad" },
       { k:{en:"Fragmentation (after paging)", zh:"碎片率（分块后）"}, v:"<4%", cls:"good" },
@@ -1078,14 +1081,17 @@ function buildCards(){
 
     let codeHtml = "";
     if(s.code){
+      // s.code is either one URL string, or an array of {url, label:{en,zh}}
+      // for stages whose numbers come from more than one experiment script.
+      const links = Array.isArray(s.code) ? s.code : [{url: s.code, label: null}];
       const noteHtml = s.codeNote
         ? `<div class="mini-caption" style="margin:14px 0 0">${glossify(tv(s.codeNote))}</div>` : "";
-      codeHtml = `
-        ${noteHtml}
-        <a class="code-link" href="${s.code}" target="_blank" rel="noopener">
+      const linksHtml = links.map(l => `
+        <a class="code-link" href="${l.url}" target="_blank" rel="noopener">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 4L1 8l4 4M11 4l4 4-4 4"/></svg>
-          ${tv(UI.viewCode)}
-        </a>`;
+          ${l.label ? tv(l.label) : tv(UI.viewCode)}
+        </a>`).join("");
+      codeHtml = `${noteHtml}<div style="display:flex;gap:18px;flex-wrap:wrap">${linksHtml}</div>`;
     }
 
     card.innerHTML = `
