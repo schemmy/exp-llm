@@ -933,6 +933,14 @@ const STAGES = [
       { k:{en:"Time to first token (TTFT)", zh:"首字延迟（TTFT）"}, v:"49-156ms", cls:"cool" },
       { k:{en:"Time per output token (TPOT)", zh:"逐字间隔（TPOT）"}, v:"~10-12ms", cls:"cool" },
     ],
+    codeNote:{ en:"49ms and the TPOT figure are from the continuous-batching run; 156ms is the prefix-cache-hit TTFT.",
+               zh:"49ms 和 TPOT 数字来自连续批处理实验；156ms 是前缀缓存命中时的 TTFT。" },
+    code:[
+      { url:"https://github.com/schemmy/exp-llm/blob/main/experiments/wk05_continuous_batching/cb_vs_static.py",
+        label:{en:"View the continuous-batching experiment", zh:"查看连续批处理实验代码"} },
+      { url:"https://github.com/schemmy/exp-llm/blob/main/experiments/wk07_prefix_cache/prefix_cache_exp.py",
+        label:{en:"View the prefix-cache experiment", zh:"查看前缀缓存实验代码"} },
+    ],
   },
   {
     id:"loopback", kind:"loop",
