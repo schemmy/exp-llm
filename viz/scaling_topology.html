@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Serving a Trillion Parameters</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ground:#0E141B; --surface:#161F2A; --surface-2:#1E2936;
+    --line:#2A3846; --line-soft:#213040;
+    --text:#DCE5EE; --dim:#8496A8; --faint:#5D7188;
+    --compute:#F0883E; --compute-soft:#5A3A1E;
+    --bandwidth:#4CA6E0; --bandwidth-soft:#1B354A;
+    --hit:#56D68A; --hit-soft:#1C3E2C;
+    --reject:#E05C5C; --measured:#B98BE0; --idle:#313E4C;
+    --sans:"IBM Plex Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --display:"Archivo","IBM Plex Sans","PingFang SC","Hiragino Sans GB",sans-serif;
+    --mono:"IBM Plex Mono","SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+  .lang-toggle{position:fixed;top:18px;right:18px;z-index:50;display:flex;background:var(--surface-2);border:1px solid var(--line);border-radius:20px;padding:3px;gap:2px;box-shadow:0 4px 16px rgba(0,0,0,.35)}
+  .lang-toggle button{font-family:var(--mono);font-size:11px;font-weight:600;border:none;background:none;color:var(--faint);cursor:pointer;padding:6px 12px;border-radius:16px;transition:all .15s}
+  .lang-toggle button:hover{color:var(--text)}
+  .lang-toggle button.active{background:var(--bandwidth-soft);color:var(--bandwidth)}
+
+  header{border-bottom:1px solid var(--line);background:linear-gradient(180deg,#111A24 0%,var(--ground) 100%);padding:52px 0 36px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin:0 0 14px}
+  h1{font-family:var(--display);font-weight:800;font-size:clamp(28px,4.6vw,46px);letter-spacing:-.02em;line-height:1.1;margin:0 0 16px;text-wrap:balance}
+  .lede{max-width:76ch;color:var(--dim);font-size:16.5px;margin:0}
+  .lede b{color:var(--text);font-weight:500}
+
+  .setup{margin-top:22px;padding:16px 20px;background:var(--surface);border:1px solid var(--line);border-radius:8px;max-width:900px}
+  .setup-row{display:flex;gap:24px 36px;flex-wrap:wrap}
+  .setup-item{display:flex;flex-direction:column;gap:3px}
+  .setup-k{font-family:var(--mono);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+  .setup-v{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text)}
+
+  .tabs-wrap{position:sticky;top:0;z-index:30;background:rgba(14,20,27,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--line-soft);padding:18px 0}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap}
+  .tab{font-family:var(--mono);font-size:12.5px;font-weight:500;color:var(--dim);background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:9px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:all .15s}
+  .tab:hover{color:var(--text);border-color:#3A4A5A}
+  .tab.active{background:var(--bandwidth-soft);border-color:var(--bandwidth);color:var(--bandwidth)}
+  .tab-num{font-size:10px;opacity:.65}
+
+  main{padding:44px 0 80px}
+  .level{display:none}
+  .level.active{display:block}
+
+  .level-head{margin-bottom:8px}
+  .level-tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+  .level h2{font-family:var(--display);font-weight:700;font-size:clamp(22px,3.2vw,30px);margin:6px 0 14px;letter-spacing:-.01em}
+  .level-body{max-width:88ch;color:var(--dim);font-size:15.5px}
+  .level-body p{margin:0 0 12px}
+  .level-body b{color:var(--text);font-weight:500}
+
+  .stage{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:28px 24px;margin:22px 0;overflow-x:auto}
+  .diagram{position:relative;min-width:max-content;padding:10px 4px 26px}
+
+  /* generic node/connector, reused across levels */
+  .row{display:flex;align-items:flex-start;gap:0;position:relative}
+  .unode{display:flex;flex-direction:column;align-items:center;gap:7px;width:128px;flex:none;padding:2px}
+  .unode-box{width:100%;min-height:52px;border-radius:9px;background:var(--surface-2);border:1.5px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 8px;font-family:var(--mono);font-size:11px;color:var(--dim);text-align:center;transition:all .2s;position:relative}
+  .unode-box b{display:block;color:var(--text);font-size:12px;margin-bottom:2px}
+  .unode.lit .unode-box{border-color:var(--bandwidth);background:var(--bandwidth-soft);box-shadow:0 0 0 3px rgba(76,166,224,.15)}
+  .unode.lit.warm .unode-box{border-color:var(--compute);background:var(--compute-soft);box-shadow:0 0 0 3px rgba(240,136,62,.15)}
+  .unode.lit.won .unode-box{border-color:var(--hit);background:var(--hit-soft);box-shadow:0 0 0 3px rgba(86,214,138,.15)}
+  .ulabel{font-family:var(--mono);font-size:10px;color:var(--faint);text-align:center}
+
+  .uconn{flex:none;width:40px;height:52px;display:flex;align-items:center;position:relative}
+  .uconn svg{width:100%;height:2px}
+  .uconn line{stroke:var(--line);stroke-width:2}
+  .uconn.fast line{stroke:var(--bandwidth);stroke-width:2.5}
+  .uconn.slow line{stroke:var(--compute);stroke-width:2.5;stroke-dasharray:4 3}
+  .uconn-label{position:absolute;top:-18px;left:50%;transform:translateX(-50%);font-family:var(--mono);font-size:9px;color:var(--faint);white-space:nowrap}
+
+  .packet{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--measured);box-shadow:0 0 10px 2px rgba(185,139,224,.6);transform:translate(-50%,-50%);z-index:5;opacity:0;transition:left .35s ease,top .35s ease}
+  .packet.on{opacity:1}
+
+  .group-box{border:1.5px dashed var(--line);border-radius:12px;padding:18px 14px 10px;position:relative;margin:0 4px}
+  .group-tag{position:absolute;top:-11px;left:16px;background:var(--surface);padding:0 8px;font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.05em}
+
+  .callout{margin-top:18px;padding:14px 18px;background:var(--surface-2);border-left:2px solid var(--measured);border-radius:0 6px 6px 0;font-size:13.5px;color:var(--dim);max-width:80ch}
+  .callout b{color:var(--text)}
+
+  .statline{display:flex;gap:24px 36px;flex-wrap:wrap;margin:16px 0 4px;padding:14px 18px;background:var(--surface);border:1px solid var(--line);border-radius:8px;max-width:900px}
+  .stat{display:flex;flex-direction:column;gap:4px}
+  .stat-k{font-family:var(--mono);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+  .stat-v{font-family:var(--mono);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+  .stat-v.warm{color:var(--compute)} .stat-v.cool{color:var(--bandwidth)} .stat-v.good{color:var(--hit)} .stat-v.bad{color:var(--reject)}
+
+  .code-link{display:inline-flex;align-items:center;gap:7px;margin:16px 14px 0 0;font-family:var(--mono);font-size:12px;color:var(--faint);text-decoration:none;border-bottom:1px dashed var(--line);padding-bottom:1px}
+  .code-link:hover{color:var(--bandwidth);border-color:var(--bandwidth)}
+  .code-link svg{width:13px;height:13px;opacity:.7}
+
+  .sm-diagram{display:flex;align-items:center;gap:0;flex-wrap:wrap}
+  .sm-tier{display:flex;flex-direction:column;align-items:center;gap:6px}
+
+  footer{padding:40px 0 64px;color:var(--faint);font-size:13px;border-top:1px solid var(--line-soft)}
+  footer a{color:var(--dim)}
+
+  @media (prefers-reduced-motion:reduce){*{transition-duration:.01ms !important;animation-duration:.01ms !important}}
+</style>
+</head>
+<body>
+
+<div class="lang-toggle">
+  <button id="lang-en" type="button">EN</button>
+  <button id="lang-zh" type="button">中文</button>
+</div>
+
+<header>
+  <div class="wrap">
+    <p class="eyebrow" id="t-eyebrow"></p>
+    <h1 id="t-h1"></h1>
+    <p class="lede" id="t-lede"></p>
+    <div class="setup">
+      <div class="setup-row" id="setup-row"></div>
+    </div>
+  </div>
+</header>
+
+<div class="tabs-wrap">
+  <div class="wrap"><div class="tabs" id="tabs"></div></div>
+</div>
+
+<main class="wrap" id="levels"></main>
+
+<footer class="wrap"><p id="t-footer"></p></footer>
+
+<script>
+(function(){
+"use strict";
+const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let LANG = localStorage.getItem("journey-lang") || "en";
+function tv(f){ return typeof f === "string" ? f : f[LANG]; }
+
+const UI = {
+  title:{en:"Serving a Trillion Parameters", zh:"服务一个万亿参数模型"},
+  eyebrow:{en:"~1T-parameter MoE · FP8 · H100 80GB · a worked example, not a specific vendor's system",
+           zh:"约 1T 参数 MoE · FP8 · H100 80GB · 一个推演出来的例子，不是某家公司的具体系统"},
+  lede:{en:`The <a href="request_journey.html">Journey of One Request</a> walked through
+            what happens on <b>one GPU</b>. A model this big doesn't fit on one — or
+            eight, or even sixteen without care. Zoom through four levels below and
+            watch where the data actually moves.`,
+        zh:`<a href="request_journey.html">《一个请求的旅程》</a>走的是<b>一张 GPU</b>
+            上发生的事。模型大到这个量级，一张卡装不下——甚至八张、十六张都得精心安排。
+            下面分四层缩放，看数据到底是怎么流动的。`},
+  footer:{en:`This page works out a standard, publicly-documented deployment pattern from
+              first principles — it is not a description of any specific company's
+              production system. The small-scale mechanics (TP overhead, EP break-even)
+              are measured in <a href="https://github.com/schemmy/exp-llm">this repo</a>;
+              see each level for the exact script. Also see
+              <a href="request_journey.html">The Journey of One Request</a>.`,
+          zh:`这一页是从第一性原理推演出的一个标准、公开可查的部署模式，不是描述某家公司的
+              具体生产系统。小规模的力学关系（TP 开销、EP 盈亏点）是<a href="https://github.com/schemmy/exp-llm">这个仓库</a>
+              实测的，每层都附了具体脚本。另见 <a href="request_journey.html">《一个请求的旅程》</a>。`},
+};
+
+const SETUP = [
+  {k:{en:"Model size",zh:"模型规模"}, v:"~1T params"},
+  {k:{en:"Active per token",zh:"每 token 激活"}, v:"~32B (MoE)"},
+  {k:{en:"Precision",zh:"精度"}, v:"FP8 → 1 byte/param"},
+  {k:{en:"Weight footprint",zh:"权重体积"}, v:"~1 TB"},
+  {k:{en:"GPU",zh:"GPU"}, v:"H100, 80GB"},
+  {k:{en:"Minimum GPUs",zh:"理论最少"}, v:"13 (1TB / 80GB)"},
+  {k:{en:"Deployed as",zh:"实际部署"}, v:"16 · 2 nodes × 8"},
+];
+
+const VIEW_CODE = {en:"View the measured mechanism", zh:"查看实测机制的代码"};
+
+const LEVELS = [
+  /* ============ LEVEL 1: DATA CENTER ============ */
+  {
+    id:"dc", tab:{en:"Data center", zh:"数据中心"},
+    tag:{en:"Level 1 of 4 · routing", zh:"第 1/4 层 · 路由"},
+    title:{en:"Your request is one of millions — which copy of the model gets it?",
+           zh:"你的请求是几百万条里的一条——哪一份模型副本接手？"},
+    body:{
+      en:`<p>A model this size is far too expensive to run one request at a time.
+          The serving fleet holds <b>multiple full copies</b> ("replicas") of the
+          whole sharded model, each copy spread across its own set of GPUs. A load
+          balancer picks a replica — often the one already holding a matching cached
+          prefix (see <a href="request_journey.html#card-prefix">prefix caching</a>)
+          — and your request enters that replica's pipeline.</p>
+          <p>This layer is <b>data parallelism (DP)</b>: identical copies of the
+          model, running independently, existing purely to serve more requests at
+          once. Nothing about the model itself is split here — that starts one
+          level down.</p>`,
+      zh:`<p>这个规模的模型贵到不可能一条请求配一份资源。服务集群里放着<b>好几份完整的
+          模型副本</b>，每份副本占用自己的一组 GPU。负载均衡器挑一个副本——通常是
+          已经缓存了匹配前缀的那个（见<a href="request_journey.html#card-prefix">前缀缓存</a>）
+          ——你的请求就进了那个副本的流水线。</p>
+          <p>这一层是<b>数据并行（DP）</b>：完全相同的模型副本各自独立运行，
+          存在的唯一目的是同时服务更多请求。模型本身在这一层还没被切开——
+          切分从下一层才开始。</p>`,
+    },
+    diagram:"dc",
+  },
+  /* ============ LEVEL 2: NODES (PIPELINE PARALLELISM) ============ */
+  {
+    id:"node", tab:{en:"Nodes", zh:"节点"},
+    tag:{en:"Level 2 of 4 · pipeline parallelism, across machines", zh:"第 2/4 层 · 流水线并行，跨机器"},
+    title:{en:"Inside one replica: the model's layers are split across physical machines",
+           zh:"一个副本内部：模型的层被切开分给不同物理机器"},
+    body:{
+      en:`<p>16 GPUs means <b>2 physical servers</b> ("nodes") of 8 GPUs each — you
+          never split a node's worth of GPUs across parallelism strategies casually,
+          because the network link <i>between</i> nodes is roughly
+          <b>18x slower</b> than the link <i>inside</i> one (InfiniBand, ~50 GB/s,
+          vs. NVLink, ~900 GB/s).</p>
+          <p>So the model is cut <b>by layer</b> across nodes — <b>pipeline
+          parallelism (PP)</b>. Node 1 holds the first half of the transformer's
+          layers, node 2 holds the rest. Your token's activation vector is computed
+          through node 1's layers, then physically ships across InfiniBand to node 2
+          to continue. Only the activations travel — not the weights, and not a
+          synchronizing all-reduce on every layer. That's deliberately the
+          <i>cheapest</i> thing to send across the slow link.</p>`,
+      zh:`<p>16 张 GPU 就是 <b>2 台物理服务器</b>（"节点"），每台 8 张——不会随便把
+          该在同一节点的 GPU 拆开用不同并行策略，因为节点<i>之间</i>的网络链路比
+          节点<i>内部</i>慢了大约 <b>18 倍</b>（InfiniBand ~50 GB/s，对比 NVLink ~900 GB/s）。</p>
+          <p>所以模型是<b>按层</b>切给不同节点的——<b>流水线并行（PP）</b>。
+          节点 1 装 transformer 前一半的层，节点 2 装剩下的。你这个 token 的激活向量
+          先过完节点 1 的层，再物理上通过 InfiniBand 传到节点 2 继续算。
+          只有激活值在跑——不传权重，每层也不用做同步的 all-reduce。
+          这本来就是在慢链路上能传的最便宜的东西。</p>`,
+    },
+    stats:[
+      {k:{en:"Intra-node (NVLink)",zh:"节点内（NVLink）"}, v:"~900 GB/s", cls:"good"},
+      {k:{en:"Inter-node (InfiniBand)",zh:"节点间（InfiniBand）"}, v:"~50 GB/s", cls:"bad"},
+      {k:{en:"Speed gap",zh:"速度差距"}, v:"~18x", cls:"warm"},
+    ],
+    diagram:"node",
+  },
+  /* ============ LEVEL 3: GPUs (TP + EP) ============ */
+  {
+    id:"gpu", tab:{en:"GPUs", zh:"GPU"},
+    tag:{en:"Level 3 of 4 · tensor + expert parallelism, inside one node", zh:"第 3/4 层 · 张量并行 + 专家并行，节点内部"},
+    title:{en:"Inside one node: 8 GPUs share every dense layer, and specialize for MoE layers",
+           zh:"一个节点内部：8 张 GPU 共享每个稠密层，MoE 层则各自专精"},
+    body:{
+      en:`<p>Inside a node, NVLink is fast enough to afford the thing that made
+          splitting expensive at the node level: a synchronizing communication step
+          on every layer. This is <b>tensor parallelism (TP)</b> — you already
+          measured it at small scale: each GPU holds a slice of every dense layer's
+          weights, and the partial results get combined with an
+          <a href="request_journey.html#card-split">all-reduce</a> after each one.
+          At TP=8 (vs. the TP=2/4 you tested), expect the per-GPU throughput
+          penalty to compound further than the 53% you measured at TP=4.</p>
+          <p>For this model's <b>MoE layers</b>, GPUs switch strategy to
+          <b>expert parallelism (EP)</b>: each GPU holds a different subset of
+          experts, a router decides which few experts each token needs, and an
+          <b>all-to-all</b> ships each token's activation to the GPU holding its
+          experts and back. You measured EP as a net loss on a 60-expert model —
+          it only pays off once expert count is in the hundreds, which is exactly
+          where real trillion-scale MoE models (e.g. 256 experts) live.</p>`,
+      zh:`<p>节点内部 NVLink 够快，撑得起在节点这一层显得太贵的东西：每层都做一次
+          同步通信。这就是<b>张量并行（TP）</b>——你已经在小规模测过：每张 GPU
+          持有每个稠密层权重的一部分，算完局部结果后用
+          <a href="request_journey.html#card-split">all-reduce</a> 合并。
+          TP=8（相对你测过的 TP=2/4）时，预期每卡吞吐的代价会比你在 TP=4 测到的
+          53% 继续放大。</p>
+          <p>到这个模型的 <b>MoE 层</b>，GPU 切换成<b>专家并行（EP）</b>：
+          每张卡持有不同的一部分专家，路由器决定每个 token 需要哪几个专家，
+          一次 <b>all-to-all</b> 把每个 token 的激活送到持有对应专家的卡上再送回来。
+          你在 60 个专家的模型上测出 EP 是净亏——只有专家数到几百个才划算，
+          而真实的万亿规模 MoE 模型（比如 256 个专家）正好活在这个区间里。</p>`,
+    },
+    stats:[
+      {k:{en:"TP=4 per-GPU throughput (measured)",zh:"TP=4 每卡吞吐（实测）"}, v:"↓ to 53%", cls:"bad"},
+      {k:{en:"EP on 60 experts (measured)",zh:"60 专家上的 EP（实测）"}, v:"0.56x, net loss", cls:"bad"},
+      {k:{en:"Typical trillion-scale expert count",zh:"万亿规模典型专家数"}, v:"~256", cls:"warm"},
+    ],
+    code:[
+      {url:"https://github.com/schemmy/exp-llm/blob/main/experiments/wk09_tensor_parallel/tp_sweep.py",
+       label:{en:"View the TP experiment (measured at TP=2/4)", zh:"查看 TP 实验代码（测的是 TP=2/4）"}},
+      {url:"https://github.com/schemmy/exp-llm/blob/main/experiments/wk10_moe/expert_parallel.py",
+       label:{en:"View the EP experiment (measured at 60 experts)", zh:"查看 EP 实验代码（测的是 60 个专家）"}},
+    ],
+    diagram:"gpu",
+  },
+  /* ============ LEVEL 4: SM ============ */
+  {
+    id:"sm", tab:{en:"Inside one GPU", zh:"一张 GPU 内部"},
+    tag:{en:"Level 4 of 4 · one GPU's own memory hierarchy", zh:"第 4/4 层 · 一张 GPU 自己的存储层级"},
+    title:{en:"Zoom in on any single GPU, and it's the same story from The Journey — just labeled precisely",
+           zh:"放大到任意一张 GPU，还是《旅程》里的那个故事——只是这次叫得更准了"},
+    body:{
+      en:`<p>Every GPU in this whole 16-card, 2-node structure is independently
+          doing what <a href="request_journey.html#card-weights">stage 9</a> of The
+          Journey described: streaming its own shard of the weights out of memory
+          for every token. Precisely: weights live in <b>HBM</b> (this GPU's local
+          80GB), stream through the shared <b>L2 cache</b>, then each
+          <b>SM</b> (Streaming Multiprocessor — an H100 has well over a hundred)
+          pulls its slice into fast on-chip memory, where the actual multiply-add
+          math happens in that SM's <b>Tensor Cores</b>.</p>
+          <p>This is the same bandwidth-vs-compute story at every scale on this page:
+          one GPU's HBM→SM trip, one node's NVLink all-reduce, one replica's
+          InfiniBand hop — all of it is, in the end, still just "how many useful
+          tokens do we get out of each trip."</p>`,
+      zh:`<p>这整套 16 卡、2 节点结构里，每一张 GPU 都在独立做
+          <a href="request_journey.html#card-weights">《旅程》第 9 站</a>描述的事：
+          每个 token 都要把自己那份权重从显存流一遍。精确地说：权重住在
+          <b>HBM</b>（这张卡本地的 80GB），流经共享的 <b>L2 缓存</b>，
+          然后每个 <b>SM</b>（Streaming Multiprocessor，H100 有一百多个）
+          把自己那份拉进片上高速存储，真正的乘加运算在那个 SM 的
+          <b>Tensor Core</b> 里发生。</p>
+          <p>这页里每个尺度讲的都是同一个带宽 vs 算力的故事：一张卡的
+          HBM→SM 这一趟、一个节点的 NVLink all-reduce、一个副本的 InfiniBand
+          跳转——说到底都还是"每一趟搬运能换回多少个有用的 token"。</p>`,
+    },
+    diagram:"sm",
+  },
+];
+
+/* ---------------- build header ---------------- */
+function renderHeader(){
+  document.title = tv(UI.title);
+  document.documentElement.lang = LANG === "zh" ? "zh-CN" : "en";
+  document.getElementById("t-eyebrow").textContent = tv(UI.eyebrow);
+  document.getElementById("t-h1").textContent = tv(UI.title);
+  document.getElementById("t-lede").innerHTML = tv(UI.lede);
+  document.getElementById("t-footer").innerHTML = tv(UI.footer);
+  document.getElementById("lang-en").classList.toggle("active", LANG==="en");
+  document.getElementById("lang-zh").classList.toggle("active", LANG==="zh");
+
+  const setupRow = document.getElementById("setup-row");
+  setupRow.innerHTML = SETUP.map(s => `
+    <div class="setup-item"><div class="setup-k">${tv(s.k)}</div><div class="setup-v">${s.v}</div></div>
+  `).join("");
+}
+
+/* ---------------- build tabs + level content ---------------- */
+let activeLevel = LEVELS[0].id;
+
+function renderTabs(){
+  const tabsEl = document.getElementById("tabs");
+  tabsEl.innerHTML = LEVELS.map((l,i) => `
+    <button class="tab ${l.id===activeLevel?'active':''}" data-level="${l.id}">
+      <span class="tab-num">${i+1}/4</span>${tv(l.tab)}
+    </button>
+  `).join("");
+  tabsEl.querySelectorAll(".tab").forEach(btn => {
+    btn.addEventListener("click", () => { activeLevel = btn.dataset.level; renderTabs(); renderLevels(); playDiagram(activeLevel); });
+  });
+}
+
+function renderLevels(){
+  const levelsEl = document.getElementById("levels");
+  levelsEl.innerHTML = LEVELS.map(l => {
+    let statsHtml = "";
+    if(l.stats){
+      statsHtml = `<div class="statline">` + l.stats.map(st =>
+        `<div class="stat"><div class="stat-k">${tv(st.k)}</div><div class="stat-v ${st.cls||''}">${st.v}</div></div>`
+      ).join("") + `</div>`;
+    }
+    let codeHtml = "";
+    if(l.code){
+      codeHtml = l.code.map(c => `
+        <a class="code-link" href="${c.url}" target="_blank" rel="noopener">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 4L1 8l4 4M11 4l4 4-4 4"/></svg>
+          ${tv(c.label)}
+        </a>`).join("");
+    }
+    return `
+      <section class="level ${l.id===activeLevel?'active':''}" id="level-${l.id}">
+        <div class="level-head"><span class="level-tag">${tv(l.tag)}</span></div>
+        <h2>${tv(l.title)}</h2>
+        <div class="level-body">${tv(l.body)}</div>
+        ${statsHtml}
+        <div class="stage"><div class="diagram" id="diagram-${l.id}"></div></div>
+        ${codeHtml}
+      </section>`;
+  }).join("");
+  LEVELS.forEach(l => buildDiagram(l.id));
+}
+
+/* ---------------- diagrams ---------------- */
+function node(html, cls){ return `<div class="unode ${cls||''}"><div class="unode-box">${html}</div></div>`; }
+function label(text){ return `<div class="ulabel">${text}</div>`; }
+function conn(cls, lbl){
+  return `<div class="uconn ${cls||''}">${lbl?`<div class="uconn-label">${lbl}</div>`:''}<svg viewBox="0 0 40 2" preserveAspectRatio="none"><line x1="0" y1="1" x2="40" y2="1"/></svg></div>`;
+}
+
+function buildDiagram(id){
+  const el = document.getElementById("diagram-"+id);
+  if(!el) return;
+
+  if(id === "dc"){
+    el.innerHTML = `
+      <div class="row" style="align-items:center;gap:18px">
+        <div class="unode" id="dc-lb"><div class="unode-box"><b>${LANG==='zh'?'负载均衡':'Load balancer'}</b>${LANG==='zh'?'路由请求':'routes requests'}</div></div>
+        ${conn('fast')}
+        <div class="group-box" style="display:flex;gap:16px">
+          <div class="group-tag">${LANG==='zh'?'副本（数据并行）':'Replicas (data parallel)'}</div>
+          <div class="unode" id="dc-r1"><div class="unode-box"><b>${LANG==='zh'?'副本 A':'Replica A'}</b>16 GPU</div></div>
+          <div class="unode" id="dc-r2"><div class="unode-box"><b>${LANG==='zh'?'副本 B':'Replica B'}</b>16 GPU</div></div>
+          <div class="unode" id="dc-r3"><div class="unode-box"><b>${LANG==='zh'?'副本 C':'Replica C'}</b>16 GPU</div></div>
+        </div>
+      </div>
+      <div class="packet" id="packet-dc"></div>`;
+  }
+
+  if(id === "node"){
+    el.innerHTML = `
+      <div class="row" style="align-items:stretch;gap:0">
+        <div class="group-box">
+          <div class="group-tag">${LANG==='zh'?'节点 1 · 前半部分的层':'Node 1 · first half of layers'}</div>
+          <div class="unode" id="nd-1"><div class="unode-box"><b>8× H100</b>NVLink</div></div>
+        </div>
+        ${conn('slow', 'InfiniBand ~50GB/s')}
+        <div class="group-box">
+          <div class="group-tag">${LANG==='zh'?'节点 2 · 后半部分的层':'Node 2 · second half of layers'}</div>
+          <div class="unode" id="nd-2"><div class="unode-box"><b>8× H100</b>NVLink</div></div>
+        </div>
+      </div>
+      <div class="packet" id="packet-node"></div>`;
+  }
+
+  if(id === "gpu"){
+    const gpus = Array.from({length:8}, (_,i) => `<div class="unode" id="gp-${i}" style="width:72px"><div class="unode-box" style="min-height:44px;padding:4px"><b>${LANG==='zh'?'卡':'GPU'} ${i}</b></div></div>`).join(conn('fast'));
+    el.innerHTML = `
+      <div class="group-box">
+        <div class="group-tag">${LANG==='zh'?'一个节点内，NVLink 全互联':'One node, NVLink-connected'}</div>
+        <div class="row" style="gap:0">${gpus}</div>
+      </div>
+      <div class="packet" id="packet-gpu"></div>`;
+  }
+
+  if(id === "sm"){
+    el.innerHTML = `
+      <div class="row" style="align-items:center;gap:0">
+        ${node(`<b>HBM</b>80GB`, '')}
+        ${conn('slow','stream')}
+        ${node(`<b>L2 cache</b>${LANG==='zh'?'全卡共享':'shared'}`, '')}
+        ${conn('fast')}
+        <div class="group-box">
+          <div class="group-tag">SM ×132</div>
+          ${node(`<b>SM</b>${LANG==='zh'?'一个':'one of many'}`, '')}
+        </div>
+        ${conn('fast')}
+        ${node(`<b>Tensor Core</b>${LANG==='zh'?'算乘加':'the math'}`, 'won')}
+      </div>
+      <div class="packet" id="packet-sm"></div>`;
+  }
+}
+
+/* ---------------- simple per-level autoplay: light up nodes in sequence ---------------- */
+let playTimer = null;
+function positionPacketAt(packetEl, nodeEl, stageEl){
+  const nr = nodeEl.getBoundingClientRect(), sr = stageEl.getBoundingClientRect();
+  packetEl.style.left = (nr.left - sr.left + nr.width/2 + stageEl.scrollLeft) + "px";
+  packetEl.style.top = (nr.top - sr.top + nr.height/2) + "px";
+}
+
+function playDiagram(id){
+  clearInterval(playTimer);
+  const stageEl = document.querySelector(`#level-${id} .stage`);
+  const packet = document.getElementById("packet-"+id);
+  if(!stageEl || !packet) return;
+
+  let sequence = [];
+  if(id === "dc") sequence = ["dc-lb","dc-r1"];
+  if(id === "node") sequence = ["nd-1","nd-2"];
+  if(id === "gpu") sequence = Array.from({length:8},(_,i)=>"gp-"+i);
+  if(id === "sm") sequence = [];  // static diagram, animate via CSS only below
+
+  document.querySelectorAll(`#level-${id} .unode`).forEach(n => n.classList.remove("lit","warm","won"));
+  packet.classList.add("on");
+
+  let i = 0;
+  const step = () => {
+    if(sequence.length === 0) return;
+    document.querySelectorAll(`#level-${id} .unode`).forEach(n => n.classList.remove("lit"));
+    const targetEl = document.getElementById(sequence[i % sequence.length]);
+    if(targetEl){
+      targetEl.classList.add("lit");
+      positionPacketAt(packet, targetEl, stageEl);
+    }
+    i++;
+  };
+  step();
+  playTimer = setInterval(step, reduced ? 40 : 650);
+
+  if(id === "sm"){
+    // walk the fixed HBM -> L2 -> SM -> TensorCore chain once
+    const chain = el => el.querySelector(".unode");
+    const nodes = Array.from(document.querySelectorAll(`#level-sm .unode`));
+    let j = 0;
+    clearInterval(playTimer);
+    const smStep = () => {
+      nodes.forEach(n => n.classList.remove("lit","warm","won"));
+      const n = nodes[j % nodes.length];
+      n.classList.add(j % nodes.length === nodes.length-1 ? "won" : "lit");
+      positionPacketAt(packet, n, stageEl);
+      j++;
+    };
+    smStep();
+    playTimer = setInterval(smStep, reduced ? 40 : 700);
+  }
+}
+
+window.addEventListener("resize", () => playDiagram(activeLevel));
+
+document.getElementById("lang-en").addEventListener("click", () => {
+  if(LANG==="en") return; LANG="en"; localStorage.setItem("journey-lang","en");
+  renderHeader(); renderTabs(); renderLevels(); playDiagram(activeLevel);
+});
+document.getElementById("lang-zh").addEventListener("click", () => {
+  if(LANG==="zh") return; LANG="zh"; localStorage.setItem("journey-lang","zh");
+  renderHeader(); renderTabs(); renderLevels(); playDiagram(activeLevel);
+});
+
+renderHeader(); renderTabs(); renderLevels();
+window.addEventListener("load", () => setTimeout(() => playDiagram(activeLevel), 300));
+})();
+</script>
+</body>
+</html>
