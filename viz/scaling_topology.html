@@ -485,7 +485,8 @@ function renderDiagram(){
 document.addEventListener("click", e => {
   const el = e.target.closest(".xnode.expandable");
   if(!el || !document.getElementById("diagram-shell").contains(el)) return;
-  if(journeyActive) return;
+  if(journeyRunning) return; // block only while actively auto-playing
+  if(journeyActive) finishJourney(); // paused mid-journey: manual click cancels it cleanly
   const level = el.dataset.level, key = el.dataset.key;
   if(level === "replica"){
     if(state.replica === key){ state.replica = null; state.node = null; state.gpu = null; }
