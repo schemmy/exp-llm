@@ -53,9 +53,13 @@
   .legend-dot.act{background:var(--measured);box-shadow:0 0 7px 1px rgba(185,139,224,.65)}
   .legend-dot.wt{background:var(--surface-2);border:1.5px solid var(--faint)}
   .legend-dot.kv{background:var(--surface-2);border:1.5px solid var(--hit)}
-  .play-btn{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--bandwidth);background:var(--bandwidth-soft);border:1px solid var(--bandwidth);border-radius:7px;padding:8px 16px;cursor:pointer;margin-left:auto;flex:none;transition:filter .15s}
+  .journey-controls{display:flex;align-items:center;gap:8px;margin-left:auto;flex:none}
+  .play-btn{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--bandwidth);background:var(--bandwidth-soft);border:1px solid var(--bandwidth);border-radius:7px;padding:8px 16px;cursor:pointer;flex:none;transition:filter .15s}
   .play-btn:hover{filter:brightness(1.2)}
   .play-btn:disabled{opacity:.45;cursor:default;filter:none}
+  .step-btn{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--dim);background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:8px 13px;cursor:pointer;flex:none;transition:all .15s}
+  .step-btn:hover{color:var(--text);border-color:#3E5064}
+  .step-btn:disabled{opacity:.35;cursor:default}
 
   .scene-caption{min-height:18px;font-family:var(--mono);font-size:12px;color:var(--measured);margin-bottom:14px;transition:opacity .2s}
   .scene-caption:empty{margin-bottom:0}
@@ -151,7 +155,11 @@
   <div class="diagram-shell" id="diagram-shell">
     <div class="legend-row">
       <div class="legend" id="legend"></div>
-      <button class="play-btn" id="play-btn" type="button"></button>
+      <div class="journey-controls">
+        <button class="step-btn" id="prev-btn" type="button"></button>
+        <button class="play-btn" id="play-btn" type="button"></button>
+        <button class="step-btn" id="next-btn" type="button"></button>
+      </div>
     </div>
     <div class="scene-caption" id="scene-caption"></div>
     <div class="diagram-body" id="diagram-body"></div>
@@ -208,6 +216,8 @@ const UI = {
   play:{en:"▶ Play one request's journey", zh:"▶ 播放一个请求的旅程"},
   pause:{en:"⏸ Pause", zh:"⏸ 暂停"},
   resume:{en:"▶ Resume", zh:"▶ 继续"},
+  prevStep:{en:"⏮ Prev", zh:"⏮ 上一步"},
+  nextStep:{en:"Next ⏭", zh:"下一步 ⏭"},
 };
 
 const SETUP = [
@@ -224,7 +234,7 @@ const LEVELS = [
   {
     id:"dc", tag:{en:"Level 1 of 4 · routing", zh:"第 1/4 层 · 路由"},
     title:{en:"Your request is one of millions — which copy of the model gets it?",
-           zh:"你的请求是几百万条里的一条——哪一份模型副本接手？"},
+           zh:"你的请求是几百万条里的一条——哪一份模型实例接手？"},
     body:{
       en:`<p>A model this size is far too expensive to run one request at a time.
           The serving fleet holds <b>multiple full copies</b> ("replicas") of the
@@ -237,10 +247,10 @@ const LEVELS = [
           once. Nothing about the model itself is split here — that starts one
           level down.</p>`,
       zh:`<p>这个规模的模型贵到不可能一条请求配一份资源。服务集群里放着<b>好几份完整的
-          模型副本</b>，每份副本占用自己的一组 GPU。负载均衡器挑一个副本——通常是
+          模型实例</b>，每份实例占用自己的一组 GPU。负载均衡器挑一个实例——通常是
           已经缓存了匹配前缀的那个（见<a href="request_journey.html#card-prefix">前缀缓存</a>）
-          ——你的请求就进了那个副本的流水线。</p>
-          <p>这一层是<b>数据并行（DP）</b>：完全相同的模型副本各自独立运行，
+          ——你的请求就进了那个实例的流水线。</p>
+          <p>这一层是<b>数据并行（DP）</b>：完全相同的模型实例各自独立运行，
           存在的唯一目的是同时服务更多请求。模型本身在这一层还没被切开——
           切分从下一层才开始。</p>`,
     },
@@ -248,7 +258,7 @@ const LEVELS = [
   {
     id:"node", tag:{en:"Level 2 of 4 · pipeline parallelism, across machines", zh:"第 2/4 层 · 流水线并行，跨机器"},
     title:{en:"Inside one replica: the model's layers are split across physical machines",
-           zh:"一个副本内部：模型的层被切开分给不同物理机器"},
+           zh:"一个实例内部：模型的层被切开分给不同物理机器"},
     body:{
       en:`<p>16 GPUs means <b>2 physical servers</b> ("nodes") of 8 GPUs each — you
           never split a node's worth of GPUs across parallelism strategies casually,
@@ -362,7 +372,7 @@ const LEVELS = [
           生成过的每个 token 的 KV cache 也是在这里被读取——它会变大，但始终待在这张卡
           自己的 HBM 里，从没被送去别处。</p>
           <p>这页里每个尺度讲的都是同一个带宽 vs 算力的故事：一张卡的
-          HBM→SM 这一趟、一个节点的 NVLink all-reduce、一个副本的 InfiniBand
+          HBM→SM 这一趟、一个节点的 NVLink all-reduce、一个实例的 InfiniBand
           跳转——说到底都还是"每一趟搬运能换回多少个有用的 token"。</p>`,
     },
   },
@@ -447,7 +457,7 @@ function buildDiagram(){
     const isOpen = state.replica === r;
     return x({
       id:"rep-"+r, level:"replica", key:r,
-      title:(LANG==='zh'?'副本 ':'Replica ')+r, sub:"16 GPU",
+      title:(LANG==='zh'?'实例 ':'Replica ')+r, sub:"16 GPU",
       expandable:true, open:isOpen,
       content: isOpen ? buildNodeLevel() : "",
     });
@@ -457,7 +467,7 @@ function buildDiagram(){
     ${x({id:"lb", title:LANG==='zh'?'负载均衡':'Load balancer', sub:LANG==='zh'?'路由请求':'routes requests'})}
     ${conn("fast")}
     <div class="group-box">
-      <div class="group-tag">${LANG==='zh'?'副本（数据并行）':'Replicas (data parallel)'}</div>
+      <div class="group-tag">${LANG==='zh'?'实例（数据并行）':'Replicas (data parallel)'}</div>
       <div class="xrow">${repsRow}</div>
     </div>
   </div>`;
@@ -492,8 +502,8 @@ document.addEventListener("click", e => {
 
 /* ---------------- animated "play the journey" sequence ---------------- */
 const CAP = {
-  dp:{en:"① Data-parallel routing — the load balancer picks a replica", zh:"① 数据并行路由——负载均衡器挑一个副本"},
-  enter:{en:"② Entering the replica's first node", zh:"② 进入副本的第一个节点"},
+  dp:{en:"① Data-parallel routing — the load balancer picks a replica", zh:"① 数据并行路由——负载均衡器挑一个实例"},
+  enter:{en:"② Entering the replica's first node", zh:"② 进入实例的第一个节点"},
   allreduce:{en:"③ Tensor-parallel all-reduce — every GPU synchronizes on this dense layer (only the activation moves; weights stay put)", zh:"③ 张量并行 all-reduce——这个稠密层里所有卡同步（只有激活值在动，权重不动）"},
   alltoall:{en:"④ MoE all-to-all — routed to 2 of 8 experts, not broadcast to all", zh:"④ MoE all-to-all——只路由到 8 个专家里的 2 个，不是广播给全部"},
   smzoom:{en:"⑤ Inside GPU 0: weights stream HBM → L2 → SM → Tensor Core — the one place they actually move", zh:"⑤ GPU 0 内部：权重从 HBM → L2 → SM → Tensor Core 流过——这是它们唯一真正移动的地方"},
@@ -560,6 +570,11 @@ function setPlayBtnMode(mode){
   btn.textContent = mode==="pause" ? tv(UI.pause) : mode==="resume" ? tv(UI.resume) : tv(UI.play);
 }
 
+function updateStepBtnStates(){
+  const prev = document.getElementById("prev-btn");
+  if(prev) prev.disabled = !journeyActive || journeyIdx <= 0;
+}
+
 function scheduleJourneyStep(){
   if(journeyIdx >= journeySteps.length){ finishJourney(); return; }
   const s = journeySteps[journeyIdx];
@@ -569,19 +584,25 @@ function scheduleJourneyStep(){
     if(s.cleanup) s.cleanup();
     if(s.final){ finishJourney(); return; }
     journeyIdx++;
+    updateStepBtnStates();
     scheduleJourneyStep();
   }, reduced ? 20 : s.dur);
 }
 
-function startJourney(){
+function initJourneyBase(){
   state = {replica:"A", node:"n1", gpu:0};
   renderDiagram();
   document.getElementById("packet").classList.add("on");
   journeySteps = buildJourneySteps();
   journeyIdx = 0;
   journeyActive = true;
+}
+
+function startJourney(){
+  initJourneyBase();
   journeyRunning = true;
   setPlayBtnMode("pause");
+  updateStepBtnStates();
   scheduleJourneyStep();
 }
 
@@ -590,11 +611,13 @@ function pauseJourney(){
   journeyTimer = null;
   journeyRunning = false;
   setPlayBtnMode("resume");
+  updateStepBtnStates();
 }
 
 function resumeJourney(){
   journeyRunning = true;
   setPlayBtnMode("pause");
+  updateStepBtnStates();
   scheduleJourneyStep();
 }
 
@@ -608,6 +631,42 @@ function finishJourney(){
   journeyRunning = false;
   journeySteps = null; journeyIdx = 0;
   setPlayBtnMode("play");
+  updateStepBtnStates();
+}
+
+/* jump to an arbitrary step, cleaning up whatever the current step was
+   doing first; used by both the prev/next buttons */
+function gotoStep(newIdx){
+  if(journeySteps && journeyIdx >= 0 && journeyIdx < journeySteps.length){
+    const cur = journeySteps[journeyIdx];
+    if(cur.cleanup) cur.cleanup();
+  }
+  if(newIdx < 0) newIdx = 0;
+  if(!journeySteps || newIdx >= journeySteps.length){ finishJourney(); return; }
+  journeyIdx = newIdx;
+  const s = journeySteps[journeyIdx];
+  setCaption(s.cap);
+  s.action();
+  setPlayBtnMode("resume");
+  updateStepBtnStates();
+}
+
+function stopAutoTimer(){
+  clearTimeout(journeyTimer);
+  journeyTimer = null;
+  journeyRunning = false;
+}
+
+function stepForward(){
+  stopAutoTimer();
+  if(!journeyActive){ initJourneyBase(); gotoStep(0); }
+  else { gotoStep(journeyIdx + 1); }
+}
+
+function stepBack(){
+  if(!journeyActive) return;
+  stopAutoTimer();
+  gotoStep(journeyIdx - 1);
 }
 
 function toggleJourney(){
@@ -636,6 +695,9 @@ function renderHeader(){
     <div class="legend-item"><span class="legend-dot ${l.cls}"></span>${tv(l)}</div>
   `).join("");
   setPlayBtnMode(document.getElementById("play-btn").dataset.mode || "play");
+  document.getElementById("prev-btn").textContent = tv(UI.prevStep);
+  document.getElementById("next-btn").textContent = tv(UI.nextStep);
+  updateStepBtnStates();
 }
 
 function renderLevels(){
@@ -672,6 +734,8 @@ function renderAll(){
 }
 
 document.getElementById("play-btn").addEventListener("click", toggleJourney);
+document.getElementById("prev-btn").addEventListener("click", stepBack);
+document.getElementById("next-btn").addEventListener("click", stepForward);
 document.getElementById("lang-en").addEventListener("click", () => {
   if(LANG==="en") return; LANG="en"; localStorage.setItem("journey-lang","en"); renderAll();
 });
