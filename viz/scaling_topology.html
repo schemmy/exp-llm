@@ -206,6 +206,8 @@ const UI = {
     {cls:"kv",  en:"KV cache — static, grows per token",      zh:"KV cache——静止，逐 token 变大"},
   ],
   play:{en:"▶ Play one request's journey", zh:"▶ 播放一个请求的旅程"},
+  pause:{en:"⏸ Pause", zh:"⏸ 暂停"},
+  resume:{en:"▶ Resume", zh:"▶ 继续"},
 };
 
 const SETUP = [
@@ -368,7 +370,8 @@ const LEVELS = [
 
 /* ---------------- diagram state ---------------- */
 let state = { replica:"A", node:"n1", gpu:0 };
-let playing = false;
+let journeyActive = false;   // true while a journey is in progress, running or paused
+let journeyRunning = false;  // true only while actively stepping (not paused)
 
 function x(o){
   const {id, level, key, title, sub, badges, expandable, open, content, cls} = o;
@@ -462,7 +465,7 @@ function buildDiagram(){
 
 function renderDiagram(){
   document.getElementById("diagram-body").innerHTML = buildDiagram();
-  if(!playing){
+  if(!journeyActive){
     const p = document.getElementById("packet");
     if(p) p.classList.remove("on");
   }
@@ -472,7 +475,7 @@ function renderDiagram(){
 document.addEventListener("click", e => {
   const el = e.target.closest(".xnode.expandable");
   if(!el || !document.getElementById("diagram-shell").contains(el)) return;
-  if(playing) return;
+  if(journeyActive) return;
   const level = el.dataset.level, key = el.dataset.key;
   if(level === "replica"){
     if(state.replica === key){ state.replica = null; state.node = null; state.gpu = null; }
@@ -500,7 +503,6 @@ const CAP = {
 };
 
 function setCaption(c){ document.getElementById("scene-caption").textContent = c ? tv(c) : ""; }
-function wait(ms){ return new Promise(r => setTimeout(r, reduced ? 15 : ms)); }
 function posPacketAt(elId){
   let el = document.getElementById(elId);
   const shell = document.getElementById("diagram-shell");
@@ -526,59 +528,93 @@ function pulseRoute(srcId, targetIds){
   }, reduced ? 60 : 950);
 }
 
-async function playJourney(){
-  if(playing) return;
-  playing = true;
-  document.getElementById("play-btn").disabled = true;
+/* Flat list of atomic steps so playback can pause/resume at any boundary
+   instead of running as one uninterruptible async sequence. */
+function buildJourneySteps(){
+  const gpuIds = ["n1-gp0","n1-gp1","n1-gp2","n1-gp3","n1-gp4","n1-gp5","n1-gp6","n1-gp7"];
+  return [
+    {cap:CAP.dp,        dur:150,  action:()=>{ posPacketAt("lb"); }},
+    {cap:CAP.dp,        dur:750,  action:()=>{ posPacketAt("rep-A"); }},
+    {cap:CAP.enter,     dur:750,  action:()=>{ posPacketAt("n1"); }},
+    {cap:CAP.allreduce, dur:1050, action:()=>{ pulseGroup(gpuIds); }},
+    {cap:CAP.alltoall,  dur:1050, action:()=>{ pulseRoute("n1-gp0", ["n1-gp2","n1-gp5"]); }},
+    {cap:CAP.smzoom,    dur:500,  action:()=>{ posPacketAt("sm-hbm"); }},
+    {cap:CAP.smzoom,    dur:500,  action:()=>{ posPacketAt("sm-l2"); }},
+    {cap:CAP.smzoom,    dur:500,  action:()=>{ posPacketAt("sm-sm"); }},
+    {cap:CAP.smzoom,    dur:550,  action:()=>{ posPacketAt("sm-tc"); }},
+    {cap:CAP.pphop,     dur:950,
+      action:()=>{ const c=document.getElementById("conn-pp"); if(c) c.classList.add("pulsing"); posPacketAt("n2"); },
+      cleanup:()=>{ const c=document.getElementById("conn-pp"); if(c) c.classList.remove("pulsing"); }},
+    {cap:CAP.echo,      dur:950,
+      action:()=>{ const n2=document.getElementById("n2"); if(n2) n2.classList.add("pulsing"); },
+      cleanup:()=>{ const n2=document.getElementById("n2"); if(n2) n2.classList.remove("pulsing"); }},
+    {cap:CAP.done,      dur:700,  action:()=>{}, final:true},
+  ];
+}
 
+let journeySteps = null, journeyIdx = 0, journeyTimer = null;
+
+function setPlayBtnMode(mode){
+  const btn = document.getElementById("play-btn");
+  btn.dataset.mode = mode;
+  btn.textContent = mode==="pause" ? tv(UI.pause) : mode==="resume" ? tv(UI.resume) : tv(UI.play);
+}
+
+function scheduleJourneyStep(){
+  if(journeyIdx >= journeySteps.length){ finishJourney(); return; }
+  const s = journeySteps[journeyIdx];
+  setCaption(s.cap);
+  s.action();
+  journeyTimer = setTimeout(() => {
+    if(s.cleanup) s.cleanup();
+    if(s.final){ finishJourney(); return; }
+    journeyIdx++;
+    scheduleJourneyStep();
+  }, reduced ? 20 : s.dur);
+}
+
+function startJourney(){
   state = {replica:"A", node:"n1", gpu:0};
   renderDiagram();
-  await wait(150);
+  document.getElementById("packet").classList.add("on");
+  journeySteps = buildJourneySteps();
+  journeyIdx = 0;
+  journeyActive = true;
+  journeyRunning = true;
+  setPlayBtnMode("pause");
+  scheduleJourneyStep();
+}
 
-  const packet = document.getElementById("packet");
-  packet.classList.add("on");
+function pauseJourney(){
+  clearTimeout(journeyTimer);
+  journeyTimer = null;
+  journeyRunning = false;
+  setPlayBtnMode("resume");
+}
 
-  setCaption(CAP.dp);
-  posPacketAt("lb"); await wait(150);
-  posPacketAt("rep-A"); await wait(750);
+function resumeJourney(){
+  journeyRunning = true;
+  setPlayBtnMode("pause");
+  scheduleJourneyStep();
+}
 
-  setCaption(CAP.enter);
-  posPacketAt("n1"); await wait(750);
-
-  setCaption(CAP.allreduce);
-  pulseGroup(["n1-gp0","n1-gp1","n1-gp2","n1-gp3","n1-gp4","n1-gp5","n1-gp6","n1-gp7"]);
-  await wait(1050);
-
-  setCaption(CAP.alltoall);
-  pulseRoute("n1-gp0", ["n1-gp2","n1-gp5"]);
-  await wait(1050);
-
-  setCaption(CAP.smzoom);
-  posPacketAt("sm-hbm"); await wait(500);
-  posPacketAt("sm-l2");  await wait(500);
-  posPacketAt("sm-sm");  await wait(500);
-  posPacketAt("sm-tc");  await wait(550);
-
-  setCaption(CAP.pphop);
-  const ppConn = document.getElementById("conn-pp");
-  if(ppConn) ppConn.classList.add("pulsing");
-  posPacketAt("n2");
-  await wait(950);
-  if(ppConn) ppConn.classList.remove("pulsing");
-
-  setCaption(CAP.echo);
-  const n2 = document.getElementById("n2");
-  if(n2) n2.classList.add("pulsing");
-  await wait(950);
-  if(n2) n2.classList.remove("pulsing");
-
-  setCaption(CAP.done);
-  await wait(700);
-  packet.classList.remove("on");
+function finishJourney(){
+  clearTimeout(journeyTimer);
+  journeyTimer = null;
+  const p = document.getElementById("packet");
+  if(p) p.classList.remove("on");
   setCaption(null);
+  journeyActive = false;
+  journeyRunning = false;
+  journeySteps = null; journeyIdx = 0;
+  setPlayBtnMode("play");
+}
 
-  playing = false;
-  document.getElementById("play-btn").disabled = false;
+function toggleJourney(){
+  const mode = document.getElementById("play-btn").dataset.mode || "play";
+  if(mode === "play") startJourney();
+  else if(mode === "pause") pauseJourney();
+  else if(mode === "resume") resumeJourney();
 }
 
 /* ---------------- header / legend / levels ---------------- */
@@ -599,7 +635,7 @@ function renderHeader(){
   document.getElementById("legend").innerHTML = UI.legend.map(l => `
     <div class="legend-item"><span class="legend-dot ${l.cls}"></span>${tv(l)}</div>
   `).join("");
-  document.getElementById("play-btn").textContent = tv(UI.play);
+  setPlayBtnMode(document.getElementById("play-btn").dataset.mode || "play");
 }
 
 function renderLevels(){
@@ -635,7 +671,7 @@ function renderAll(){
   renderDiagram();
 }
 
-document.getElementById("play-btn").addEventListener("click", playJourney);
+document.getElementById("play-btn").addEventListener("click", toggleJourney);
 document.getElementById("lang-en").addEventListener("click", () => {
   if(LANG==="en") return; LANG="en"; localStorage.setItem("journey-lang","en"); renderAll();
 });
