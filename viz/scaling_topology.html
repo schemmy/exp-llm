@@ -323,7 +323,16 @@ const LEVELS = [
           those 2 targets light up, not all 8. You measured EP as a net loss on a
           60-expert model — it only pays off once expert count is in the hundreds,
           which is exactly where real trillion-scale MoE models (e.g. 256 experts)
-          live.</p>`,
+          live.</p>
+          <p>This is also where the sparsity pays — and where it stops paying. For
+          <i>one</i> token, only those 2 experts' weights are ever streamed out of
+          HBM; the other 254 sit untouched, which is what "~32B active per token"
+          means in practice. But batch that token with 31 others and their routers
+          select different experts, so nearly every expert's weights get pulled
+          anyway. You measured exactly this: the MoE model held <b>67%</b> of a
+          small dense model's speed at batch=1 and only <b>6%</b> at batch=32, as
+          the batch scattered across 60 experts and one large GEMM fractured into
+          60 tiny ones.</p>`,
       zh:`<p>节点内部 NVLink 够快，撑得起在节点这一层显得太贵的东西：每层都做一次
           同步通信。这就是<b>张量并行（TP）</b>——你已经在小规模测过：每张 GPU
           持有每个稠密层权重的一部分（同样是静止的徽章——权重不动），局部激活值算完后用
@@ -336,7 +345,14 @@ const LEVELS = [
           一次 <b>all-to-all</b> 只把每个 token 的激活送到持有对应专家的那几张卡再送回来
           ——图上只有发起的那张卡和那 2 个目标会亮，不是全部 8 张。
           你在 60 个专家的模型上测出 EP 是净亏——只有专家数到几百个才划算，
-          而真实的万亿规模 MoE 模型（比如 256 个专家）正好活在这个区间里。</p>`,
+          而真实的万亿规模 MoE 模型（比如 256 个专家）正好活在这个区间里。</p>
+          <p>稀疏性赚钱的地方在这儿，不赚钱的地方也在这儿。对<i>单个</i> token
+          而言，只有那 2 个专家的权重会被从 HBM 流出来，另外 254 个一动不动
+          ——这就是「每 token 激活 ~32B」在实际中的含义。但把这个 token 和另外
+          31 个凑成一批，它们的路由器会选中不同的专家，于是几乎每个专家的权重
+          照样要被拉一遍。你实测到的正是这个：MoE 模型在 batch=1 时能跑到小稠密
+          模型速度的 <b>67%</b>，到 batch=32 只剩 <b>6%</b>——这一批 token 被
+          打散到 60 个专家，一个大 GEMM 碎成了 60 个小的。</p>`,
     },
     stats:[
       {k:{en:"TP=4 per-GPU throughput (measured)",zh:"TP=4 每卡吞吐（实测）"}, v:"↓ to 53%", cls:"bad"},
@@ -546,7 +562,8 @@ const CAP = {
   enter:{en:"② Entering the replica's first node", zh:"② 进入实例的第一个节点"},
   allreduce:{en:"③ Tensor-parallel all-reduce — every GPU synchronizes on this dense layer (only the activation moves; weights stay put)", zh:"③ 张量并行 all-reduce——这个稠密层里所有卡同步（只有激活值在动，权重不动）"},
   alltoall:{en:"④ MoE all-to-all — routed to 2 of 8 experts, not broadcast to all", zh:"④ MoE all-to-all——只路由到 8 个专家里的 2 个，不是广播给全部"},
-  smzoom:{en:"⑤ Inside GPU 0: weights stream HBM → L2 → SM → Tensor Core — the one place they actually move", zh:"⑤ GPU 0 内部：权重从 HBM → L2 → SM → Tensor Core 流过——这是它们唯一真正移动的地方"},
+  smzoom:{en:"⑤ Inside GPU 2 — one of the 2 experts just selected: that expert's weights stream HBM → L2 → SM → Tensor Core. The other 6 GPUs' experts are never touched for this token — this is the one place weights actually move",
+          zh:"⑤ GPU 2 内部——刚被选中的 2 个专家之一：这个专家的权重从 HBM → L2 → SM → Tensor Core 流过。另外 6 张卡上的专家，这个 token 根本不会碰——这是权重唯一真正移动的地方"},
   pphop:{en:"⑥ Pipeline hop — the activation crosses InfiniBand to node 2 (18x slower than NVLink)", zh:"⑥ 流水线跳转——激活值跨 InfiniBand 传到节点 2（比 NVLink 慢 18 倍）"},
   echo:{en:"⑦ Node 2 runs the same TP + EP dance on its half of the layers", zh:"⑦ 节点 2 在自己那一半层上做同样的 TP + EP"},
   done:{en:"Token emitted.", zh:"Token 生成完毕。"},
@@ -578,20 +595,47 @@ function pulseRoute(srcId, targetIds){
   }, reduced ? 60 : 950);
 }
 
+/* Which GPU box is expanded carries meaning during the journey, it isn't just
+   a default: the MoE step routes this token to GPUs 2 and 5, so the
+   memory-hierarchy zoom that follows has to happen inside one of those actual
+   selected experts — not inside GPU 0, which only forwarded the activation on.
+   gotoStep() jumps straight to any step without replaying earlier ones, so
+   every action sets the focus it needs itself; re-render only when the focus
+   actually changes, or the packet's CSS transition gets reset mid-walk. */
+const EXPERT_GPUS = [2, 5];   // the 2 of 8 this token's router happens to pick
+function focusGpu(idx){
+  if(state.replica==="A" && state.node==="n1" && state.gpu===idx) return;
+  state.replica = "A"; state.node = "n1"; state.gpu = idx;
+  renderDiagram();
+  // GPU 0 used to be the only box we ever expanded, and it sits at the left
+  // edge where it is always visible. An expert mid-row can fall outside the
+  // horizontally-scrolling viewport, so bring it back into view before the
+  // packet is positioned (posPacketAt reads scrollLeft, so order matters).
+  const shell = document.getElementById("diagram-shell");
+  const box = document.getElementById("n1-gp"+idx);
+  if(shell && box){
+    const br = box.getBoundingClientRect(), sr = shell.getBoundingClientRect();
+    if(br.left < sr.left + 12) shell.scrollLeft += br.left - sr.left - 12;
+    else if(br.right > sr.right - 12) shell.scrollLeft += Math.min(br.left - sr.left - 12, br.right - sr.right + 12);
+  }
+}
+
 /* Flat list of atomic steps so playback can pause/resume at any boundary
    instead of running as one uninterruptible async sequence. */
 function buildJourneySteps(){
   const gpuIds = ["n1-gp0","n1-gp1","n1-gp2","n1-gp3","n1-gp4","n1-gp5","n1-gp6","n1-gp7"];
+  const expertIds = EXPERT_GPUS.map(i => "n1-gp"+i);
+  const expert = EXPERT_GPUS[0];
   return [
-    {cap:CAP.dp,        dur:150,  action:()=>{ posPacketAt("lb"); }},
-    {cap:CAP.dp,        dur:750,  action:()=>{ posPacketAt("rep-A"); }},
-    {cap:CAP.enter,     dur:750,  action:()=>{ posPacketAt("n1"); }},
-    {cap:CAP.allreduce, dur:1050, action:()=>{ pulseGroup(gpuIds); }},
-    {cap:CAP.alltoall,  dur:1050, action:()=>{ pulseRoute("n1-gp0", ["n1-gp2","n1-gp5"]); }},
-    {cap:CAP.smzoom,    dur:500,  action:()=>{ posPacketAt("sm-hbm"); }},
-    {cap:CAP.smzoom,    dur:500,  action:()=>{ posPacketAt("sm-l2"); }},
-    {cap:CAP.smzoom,    dur:500,  action:()=>{ posPacketAt("sm-sm"); }},
-    {cap:CAP.smzoom,    dur:550,  action:()=>{ posPacketAt("sm-tc"); }},
+    {cap:CAP.dp,        dur:150,  action:()=>{ focusGpu(0); posPacketAt("lb"); }},
+    {cap:CAP.dp,        dur:750,  action:()=>{ focusGpu(0); posPacketAt("rep-A"); }},
+    {cap:CAP.enter,     dur:750,  action:()=>{ focusGpu(0); posPacketAt("n1"); }},
+    {cap:CAP.allreduce, dur:1050, action:()=>{ focusGpu(0); pulseGroup(gpuIds); }},
+    {cap:CAP.alltoall,  dur:1050, action:()=>{ focusGpu(0); pulseRoute("n1-gp0", expertIds); }},
+    {cap:CAP.smzoom,    dur:650,  action:()=>{ focusGpu(expert); posPacketAt("sm-hbm"); }},
+    {cap:CAP.smzoom,    dur:500,  action:()=>{ focusGpu(expert); posPacketAt("sm-l2"); }},
+    {cap:CAP.smzoom,    dur:500,  action:()=>{ focusGpu(expert); posPacketAt("sm-sm"); }},
+    {cap:CAP.smzoom,    dur:550,  action:()=>{ focusGpu(expert); posPacketAt("sm-tc"); }},
     {cap:CAP.pphop,     dur:950,
       action:()=>{ const c=document.getElementById("conn-pp"); if(c) c.classList.add("pulsing"); posPacketAt("n2"); },
       cleanup:()=>{ const c=document.getElementById("conn-pp"); if(c) c.classList.remove("pulsing"); }},
