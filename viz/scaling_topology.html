@@ -254,6 +254,15 @@ const LEVELS = [
           存在的唯一目的是同时服务更多请求。模型本身在这一层还没被切开——
           切分从下一层才开始。</p>`,
     },
+    stats:[
+      {k:{en:"TTFT without cached prefix",zh:"无前缀缓存的 TTFT"}, v:"829 ms", cls:"bad"},
+      {k:{en:"TTFT with cached prefix (measured)",zh:"命中前缀缓存的 TTFT（实测）"}, v:"156 ms", cls:"good"},
+      {k:{en:"Reduction",zh:"降幅"}, v:"5.3x", cls:"good"},
+    ],
+    code:[
+      {url:"https://github.com/schemmy/exp-llm/blob/main/experiments/wk07_prefix_cache/prefix_cache_exp.py",
+       label:{en:"View the prefix-caching experiment behind this routing decision", zh:"查看这个路由决策背后的前缀缓存实验代码"}},
+    ],
   },
   {
     id:"node", tag:{en:"Level 2 of 4 · pipeline parallelism, across machines", zh:"第 2/4 层 · 流水线并行，跨机器"},
@@ -361,7 +370,18 @@ const LEVELS = [
           <p>This is the same bandwidth-vs-compute story at every scale on this page:
           one GPU's HBM→SM trip, one node's NVLink all-reduce, one replica's
           InfiniBand hop — all of it is, in the end, still just "how many useful
-          tokens do we get out of each trip."</p>`,
+          tokens do we get out of each trip."</p>
+          <p>You measured this exact bandwidth-vs-compute tradeoff on an A100: CUDA
+          graphs cut per-step Python/launch overhead by <b>2.69x at batch=1</b>, and
+          the roofline model's predicted ridge (M≈153, where compute cost and
+          bandwidth cost cross over) landed almost exactly between the batch=128 and
+          batch=256 measurements. Even at the best batch size, measured compute
+          utilization (MFU) topped out around <b>51-52%</b> — never the
+          theoretical 100% — which is the realistic ceiling to expect from this
+          same HBM→L2→SM→Tensor Core path on an H100 too, just at
+          different absolute numbers (H100's HBM3 runs ~3.35 TB/s vs. the ~2 TB/s
+          A100 measured here, and adds native FP8 tensor cores this page's model
+          relies on).</p>`,
       zh:`<p>这整套 16 卡、2 节点结构里，每一张 GPU 都在独立做
           <a href="request_journey.html#card-weights">《旅程》第 9 站</a>描述的事：
           每个 token 都要把自己那份权重从显存流一遍。这是这页里<b>唯一一个权重真的会动
@@ -373,8 +393,27 @@ const LEVELS = [
           自己的 HBM 里，从没被送去别处。</p>
           <p>这页里每个尺度讲的都是同一个带宽 vs 算力的故事：一张卡的
           HBM→SM 这一趟、一个节点的 NVLink all-reduce、一个实例的 InfiniBand
-          跳转——说到底都还是"每一趟搬运能换回多少个有用的 token"。</p>`,
+          跳转——说到底都还是"每一趟搬运能换回多少个有用的 token"。</p>
+          <p>你在 A100 上实测过同一个带宽 vs 算力的取舍：CUDA graph
+          让每一步的 Python/启动开销降低了<b>batch=1 时 2.69 倍</b>，
+          roofline 模型预测的脊点（M≈153，算力成本和带宽成本
+          交叉的地方）几乎正好落在 batch=128 和 batch=256 的实测值之间。
+          就算选到最优 batch，实测的计算利用率（MFU）也只摸到
+          <b>51%-52%</b> 封顶——从来到不了理论上的 100%——这也是
+          同一条 HBM→L2→SM→Tensor Core 路径搬到 H100 上该有的现实上限，
+          只是绝对数字会不一样（H100 的 HBM3 带宽约 3.35 TB/s，比这里
+          实测的 A100 ~2 TB/s 快，还多了这页模型依赖的原生 FP8 Tensor
+          Core）。</p>`,
     },
+    stats:[
+      {k:{en:"CUDA-graph speedup at batch=1 (measured, A100)",zh:"batch=1 时 CUDA graph 加速（A100 实测）"}, v:"2.69x", cls:"good"},
+      {k:{en:"Roofline ridge point (predicted)",zh:"Roofline 脊点（预测）"}, v:"M≈153", cls:"warm"},
+      {k:{en:"MFU ceiling reached in practice",zh:"实测触及的 MFU 上限"}, v:"~51-52%", cls:"bad"},
+    ],
+    code:[
+      {url:"https://github.com/schemmy/exp-llm/blob/main/experiments/wk11_roofline/roofline_sweep.py",
+       label:{en:"View the roofline / CUDA-graph sweep (A100, not the H100 assumed here)", zh:"查看 roofline / CUDA graph 实验代码（测的是 A100，不是这里假设的 H100）"}},
+    ],
   },
 ];
 
