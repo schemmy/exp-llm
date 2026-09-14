@@ -129,6 +129,20 @@ packet everywhere:
    to a *subset*, not a broadcast.
 4. GPU-internal HBM→L2→SM→TensorCore — a dot walks this chain, because this
    is the one place weights (and the KV cache being read) genuinely move.
+   **This scene runs inside one of the two GPUs the previous scene just
+   routed to** (GPU 2), not inside GPU 0 which merely forwarded the
+   activation on. The first version zoomed into GPU 0 — whichever box happened
+   to be expanded by default — which read as though the forwarding GPU were
+   doing the expert's work, and prompted a reader to ask whether only the
+   activated experts run this step at all. Two distinct things were being
+   conflated: the HBM→SM walk is universal (in a dense TP layer all 8 GPUs do
+   it at once, each streaming its own shard), whereas what is *expert*-specific
+   is that for one token only the 2 selected experts' FFN weights leave HBM
+   while the other 254 sit untouched — which is precisely what "~32B active
+   per token" buys. The Level 3 prose now carries that distinction, along with
+   why it stops paying under batching (the measured wk10 result: 67% of a small
+   dense model's speed at batch=1, 6% at batch=32, as the batch scatters across
+   60 experts).
 
 Scene captions (bilingual, numbered ①-⑦) narrate each step in the caption
 bar above the diagram while it plays.
@@ -161,6 +175,21 @@ expand/collapse until the animation finished. Fixed by blocking only on
 while paused now cleanly cancels the journey via `finishJourney()` first,
 then applies the click. Lesson: when a "some action in progress" flag has an
 active sub-state and a paused sub-state, gate interaction on the narrower one.
+
+A second, related constraint falls out of the same design: because `gotoStep`
+jumps straight to an arbitrary index **without replaying the steps before it**,
+any step whose visuals depend on diagram state must establish that state
+itself rather than inherit it from its predecessor. When the memory-hierarchy
+scene moved into an expert GPU, that state (which box is expanded) became part
+of the journey's meaning, so every step now calls `focusGpu(n)` — idempotent,
+re-rendering only when the focus actually changes, so the packet's CSS
+transition isn't reset mid-walk. A knock-on effect worth remembering: GPU 0 sat
+at the left edge and was always visible, while an expert mid-row can fall
+outside the horizontally-scrolling viewport, so `focusGpu` also scrolls the
+focused box back into view — before `posPacketAt` runs, since that function
+reads `scrollLeft`. **Generalizable rule: in a steps-as-data animation with
+arbitrary seeking, a step's `action()` must be a complete description of the
+frame, not a delta from the previous one.**
 
 ## 7. Visual/technical system (shared across the whole `viz/` series)
 
