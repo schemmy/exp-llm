@@ -75,6 +75,7 @@
   }
   .lede{max-width:76ch;color:var(--dim);font-size:17px;margin:0}
   .lede b{color:var(--text);font-weight:500}
+  .lede a{color:var(--bandwidth)}
 
   /* ---------- pipeline stage ---------- */
   .pipeline-wrap{
@@ -311,10 +312,16 @@ const UI = {
   lede:       { en:`From the moment you hit send to the moment the first word appears —
                     and the two-hundredth — twelve things happen in between. Some happen
                     once. Some happen again for every single word.
+                    All of it happens on <b>one GPU</b> — for what changes once a model
+                    is too big to fit on one, see
+                    <a href="scaling_topology.html">Serving a Trillion Parameters</a>.
                     <b>Click any stage on the timeline below to see the details;
                     or don't — autoplay will walk you through the whole journey first.</b>`,
                 zh:`从你按下发送，到第一个字出现，再到第两百个字出现——中间发生了十二件事。
-                    有的只发生一次，有的每个字都要重来一遍。<b>点下面时间线上的任意一站，
+                    有的只发生一次，有的每个字都要重来一遍。
+                    这些都发生在<b>一张 GPU</b> 上——模型大到一张卡装不下时会变成什么样，
+                    见<a href="scaling_topology.html">《服务一个万亿参数模型》</a>。
+                    <b>点下面时间线上的任意一站，
                     往下看细节；不点也行，自动播放会带你走一遍全程。</b>` },
   replay:     { en:"▶ Replay the journey", zh:"▶ 重新播放全程" },
   hint:       { en:"or click any stage directly", zh:"或者直接点任意一站" },
