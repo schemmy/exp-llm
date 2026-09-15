@@ -201,15 +201,7 @@
     background:var(--surface);border:1px solid var(--line);
     border-left:3px solid var(--measured);border-radius:0 8px 8px 0;
   }
-  .primer summary{
-    cursor:pointer;list-style:none;font-family:var(--mono);font-size:12px;
-    font-weight:600;letter-spacing:.04em;color:var(--measured);
-    display:flex;align-items:center;gap:8px;
-  }
-  .primer summary::-webkit-details-marker{display:none}
-  .primer summary::before{content:"▸";transition:transform .15s}
-  .primer[open] summary::before{transform:rotate(90deg)}
-  .primer-body{margin-top:12px;font-size:14.5px;color:var(--dim);line-height:1.7}
+  .primer-body{font-size:14.5px;color:var(--dim);line-height:1.7}
   .primer-body p{margin:0 0 10px}
   .primer-body p:last-child{margin:0}
   .primer-body b{color:var(--text);font-weight:500}
@@ -296,10 +288,9 @@
     <p class="eyebrow" id="t-eyebrow"></p>
     <h1 id="t-h1"></h1>
     <p class="lede" id="t-lede"></p>
-    <details class="primer" id="primer" open>
-      <summary id="t-primer-summary"></summary>
+    <div class="primer" id="primer">
       <div class="primer-body" id="t-primer-body"></div>
-    </details>
+    </div>
   </div>
 </header>
 
@@ -345,8 +336,6 @@ const UI = {
   hint:       { en:"or click any stage directly", zh:"或者直接点任意一站" },
   loopTag:    { en:"repeats once per token", zh:"每个 token 重复一次" },
   viewCode:   { en:"View the experiment", zh:"查看实验代码" },
-  primerSummary: { en:"NEW TO THIS?  THE ONE IDEA THE WHOLE PAGE IS BUILT ON",
-                   zh:"第一次看？  这一页建立在一个想法上" },
   primerBody: {
     en:`<p>The model's numbers — its "weights", about 14 GB — are far too big to sit
         inside the GPU's tiny fast math units. They live in the GPU's main memory, and
@@ -1238,7 +1227,6 @@ function renderUIText(){
   document.getElementById("t-eyebrow").textContent = tv(UI.eyebrow);
   document.getElementById("t-h1").textContent = tv(UI.h1);
   document.getElementById("t-lede").innerHTML = tv(UI.lede);
-  document.getElementById("t-primer-summary").textContent = tv(UI.primerSummary);
   document.getElementById("t-primer-body").innerHTML = glossify(tv(UI.primerBody));
   document.getElementById("replay-btn").textContent = tv(UI.replay);
   document.getElementById("t-hint").textContent = tv(UI.hint);
