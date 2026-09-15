@@ -195,19 +195,6 @@
     padding:1px 5px;border-radius:3px;color:var(--text);
   }
 
-  /* --- primer box --- */
-  .primer{
-    max-width:88ch;margin:24px 0 4px;padding:18px 22px;
-    background:var(--surface);border:1px solid var(--line);
-    border-left:3px solid var(--measured);border-radius:0 8px 8px 0;
-  }
-  .primer-body{font-size:14.5px;color:var(--dim);line-height:1.7}
-  .primer-body p{margin:0 0 10px}
-  .primer-body p:last-child{margin:0}
-  .primer-body b{color:var(--text);font-weight:500}
-  .primer-body .hot{color:var(--compute)}
-  .primer-body .cool{color:var(--bandwidth)}
-
   /* --- inline glossary terms --- */
   .gl-term{
     font:inherit;color:inherit;background:none;border:none;padding:0;cursor:help;
@@ -288,9 +275,6 @@
     <p class="eyebrow" id="t-eyebrow"></p>
     <h1 id="t-h1"></h1>
     <p class="lede" id="t-lede"></p>
-    <div class="primer" id="primer">
-      <div class="primer-body" id="t-primer-body"></div>
-    </div>
   </div>
 </header>
 
@@ -336,33 +320,6 @@ const UI = {
   hint:       { en:"or click any stage directly", zh:"或者直接点任意一站" },
   loopTag:    { en:"repeats once per token", zh:"每个 token 重复一次" },
   viewCode:   { en:"View the experiment", zh:"查看实验代码" },
-  primerBody: {
-    en:`<p>The model's numbers — its "weights", about 14 GB — are far too big to sit
-        inside the GPU's tiny fast math units. They live in the GPU's main memory, and
-        <b>every time the model runs, all 14 GB have to be streamed from that memory
-        through the math units.</b> That trip takes a few milliseconds and it is
-        usually the slowest thing happening.</p>
-        <p>So the question that decides speed is: <b>how many tokens does one
-        14-GB trip produce?</b></p>
-        <p>Reading your prompt (the <span class="hot">prefill</span> phase) does all
-        its tokens together in one trip — hundreds of tokens per trip, so the math
-        units stay genuinely busy. Writing the answer (the
-        <span class="cool">decode</span> phase) produces just one token per trip, so
-        the math is mostly idle and you're just paying for the memory streaming, over
-        and over.</p>
-        <p>Almost every trick on this page does one of two things:
-        <b>get more tokens out of each 14-GB trip</b>, or <b>make each trip smaller</b>.
-        Once you see that, the rest follows.</p>`,
-    zh:`<p>模型的那些数字——它的"权重"，约 14 GB——远远塞不进 GPU 那点小小的高速计算单元。
-        它们住在 GPU 的主显存里，<b>模型每跑一次，这 14 GB 全部都要从显存流经计算单元一遍。</b>
-        这趟要花几毫秒，而且通常是全程最慢的一环。</p>
-        <p>所以决定速度的问题是：<b>一趟 14 GB 的搬运，能产出多少个 token？</b></p>
-        <p>读你的 prompt（<span class="hot">prefill</span> 阶段）把所有 token 放在一趟里一起算——
-        一趟几百个 token，所以计算单元是真的在忙。写答案（<span class="cool">decode</span> 阶段）
-        一趟只产出一个 token，所以算力大部分闲着，你只是在一遍遍地为显存流动付钱。</p>
-        <p>这一页几乎每个技巧，都在做两件事之一：<b>让每趟 14 GB 搬运产出更多 token</b>，
-        或者<b>让每趟搬运更小</b>。看懂这个，后面就顺了。</p>`,
-  },
   footer:     { en:`Data from <code>benchmarks/README.md</code>, Qwen2.5-7B-Instruct, A100-80GB,
                     fp16, vLLM · every experiment is reproducible:
                     <code>modal run experiments/wkXX_*/*.py</code> · also see the
@@ -1227,7 +1184,6 @@ function renderUIText(){
   document.getElementById("t-eyebrow").textContent = tv(UI.eyebrow);
   document.getElementById("t-h1").textContent = tv(UI.h1);
   document.getElementById("t-lede").innerHTML = tv(UI.lede);
-  document.getElementById("t-primer-body").innerHTML = glossify(tv(UI.primerBody));
   document.getElementById("replay-btn").textContent = tv(UI.replay);
   document.getElementById("t-hint").textContent = tv(UI.hint);
   document.getElementById("t-footer").innerHTML = tv(UI.footer);
