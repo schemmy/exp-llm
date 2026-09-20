@@ -97,16 +97,25 @@ def profile_ddp_step(model, optimizer, batch_size, device, n_steps=10):
             optimizer.zero_grad(set_to_none=True)
         torch.cuda.synchronize()
 
+    # PyTorch renamed FunctionEventAvg's `cuda_time_total` to `device_time_total`
+    # somewhere around 2.1 (generalizing the profiler beyond CUDA) — try both so
+    # this doesn't silently break again on the next torch bump.
+    def device_us(e):
+        for attr in ("device_time_total", "cuda_time_total"):
+            if hasattr(e, attr):
+                return getattr(e, attr)
+        return 0
+
     events = prof.key_averages()
-    comm_us = sum(e.cuda_time_total for e in events
+    comm_us = sum(device_us(e) for e in events
                   if "nccl" in e.key.lower() or "allreduce" in e.key.lower())
-    total_us = sum(e.cuda_time_total for e in events)
-    top10 = sorted(events, key=lambda e: -e.cuda_time_total)[:10]
+    total_us = sum(device_us(e) for e in events)
+    top10 = sorted(events, key=lambda e: -device_us(e))[:10]
 
     return {
         "comm_fraction": comm_us / total_us if total_us else None,
         "top_events": [
-            {"name": e.key, "cuda_time_us": e.cuda_time_total, "count": e.count}
+            {"name": e.key, "cuda_time_us": device_us(e), "count": e.count}
             for e in top10
         ],
     }
@@ -247,15 +256,23 @@ def main():
     singles = {r["batch_size"]: r for r in rows if r["kind"] == "single"}
     ddps = {r["batch_size"]: r for r in rows if r["kind"] == "ddp"}
 
+    # d["tokens_per_sec"] is rank 0's OWN throughput (its batch / its wall time),
+    # not the system total — but both ranks are lockstepped by the blocking
+    # all-reduce every step, so rank 0's cadence is the joint cadence and
+    # system throughput = 2x its number. Scaling efficiency compares that
+    # system total against the ideal (2x the single-GPU number), which
+    # simplifies to d_tps / s_tps — NOT d_tps / (2*s_tps), a bug in the first
+    # run of this script that made every efficiency number look ~2x worse
+    # than reality (48%/50% instead of the true ~97%/~100%).
     print(f"\n{'='*70}\n  THROUGHPUT (tokens/sec)\n{'='*70}")
-    print(f"  {'batch':<8}{'single-GPU':<16}{'2-GPU DDP':<16}{'scaling eff.':<14}")
+    print(f"  {'batch':<8}{'single-GPU':<16}{'2-GPU DDP total':<18}{'scaling eff.':<14}")
     for bs in BATCH_SIZES:
         s = singles.get(bs)
         d = ddps.get(bs)
         s_tps = f"{s['tokens_per_sec']:,.1f}" if s else "-"
-        d_tps = f"{d['tokens_per_sec']:,.1f}" if d else "-"
-        eff = f"{d['tokens_per_sec'] / (2 * s['tokens_per_sec']):.2%}" if s and d else "-"
-        print(f"  {bs:<8}{s_tps:<16}{d_tps:<16}{eff:<14}")
+        d_total_tps = f"{2 * d['tokens_per_sec']:,.1f}" if d else "-"
+        eff = f"{d['tokens_per_sec'] / s['tokens_per_sec']:.2%}" if s and d else "-"
+        print(f"  {bs:<8}{s_tps:<16}{d_total_tps:<18}{eff:<14}")
 
     if 16 in ddps and "profile" in ddps[16]:
         prof = ddps[16]["profile"]
