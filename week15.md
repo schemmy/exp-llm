@@ -14,7 +14,28 @@
 
 先理解：loss 是当前预测的误差；backward 计算各参数对 loss 的梯度；optimizer 根据梯度更新参数。一个 step 会改变权重，普通推理不会。
 
-## Task 2：单卡训练基线（待实现）
+## Task 2：单卡训练基线（脚本已准备，待运行）
+
+脚本：[experiments/wk15_training_baseline/train_step.py](experiments/wk15_training_baseline/train_step.py)。随机初始化的四层 causal Transformer，词表 4096、hidden size 256、batch 8、序列长度 256。先用 FP32 + AdamW，关闭 TF32，不使用 AMP 或 compile，便于解释显存组成。
+
+```bash
+cd ~/projects/exp-llm
+modal run --detach experiments/wk15_training_baseline/train_step.py::bench
+```
+
+直接运行远程 `bench`，整个实验和结果保存都在该函数内完成，不依赖本地 entrypoint 继续调度。新训练镜像只安装固定版本 `torch==2.6.0`（CUDA 12.4 wheel），第一次需要构建；不复用 vLLM 镜像。脚本本地通过语法和 Modal 定义加载检查；CUDA 执行尚未验证。
+
+每次运行保存独立 JSON 至 Modal Volume `training-baseline-results`，文件名在日志末尾。可在 Modal 控制台下载，也可以运行 `modal volume get training-baseline-results <日志里的文件名，不含/results/> ./`。
+
+先观察三个问题：
+
+1. backward 后 `grad MiB` 是否接近 FP32 参数字节数？
+2. 首次 optimizer step 后 `Adam MiB` 是否接近参数字节数的两倍，之后是否保持稳定？
+3. `zero_grad(set_to_none=True)` 后梯度占用是否消失，而 Adam 状态仍在？
+
+首次 step 与预热后 10 次的中位数分开报告。阶段之间同步会影响性能，因此这是诊断实验，不作为最大训练吞吐指标。JSON 保留 allocated/reserved/peak 和各阶段前后数据；forward 的分配增量不全是模型激活，也包含 loss 所需的中间 tensor。
+
+测量接口参考：[PyTorch CUDA memory](https://docs.pytorch.org/docs/stable/cuda.html)、[AdamW](https://docs.pytorch.org/docs/main/generated/torch.optim.AdamW.html)。
 
 使用 Modal 单卡 A100 和一个小型 PyTorch 模型，先测完整训练过程，再扩大规模。无需一开始加载 7B。
 
