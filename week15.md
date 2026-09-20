@@ -1,64 +1,124 @@
-# Week 15 — 从单卡训练到两卡 DDP
+# Week 15 — PyTorch DDP baseline：2× A100 上的第一次分布式训练
 
-状态：开始学习，尚未运行训练实验。对应 PLAN.md 的 Wk 15–16，不新增一周。
+**Dates**: 2026-12-06 → 2026-12-12
+**Goal**: 在 2 张 A100 上跑 PyTorch DDP，测出**scaling efficiency**（双卡吞吐相对
+单卡的比值），并回答一个 P1 没碰过的问题——**通信开销**在什么条件下会把双卡的
+理论 2 倍收益吃掉。
 
-## 要回答的问题
+**Time budget**: 4-5 小时 ｜ **GPU 成本**: ~$8-10（Modal 上 2× A100，1-1.5 小时）
 
-同一个模型，为什么推理能放进显存，训练却可能放不下？第二张 GPU 能解决哪一部分问题？
+---
 
-## Task 1：读懂一个训练 step
+## 从 P1 带过来的钩子
 
-- [ ] 画出 `batch → forward → loss → backward → optimizer.step → zero_grad`。
-- [ ] 区分参数、激活、梯度、优化器状态：各自是什么、何时产生、何时释放。
-- [ ] 解释为什么训练的 backward 需要 forward 的中间结果，而通常的推理不需要保存这些结果来求梯度。
+P1 的 12 周里，所有吞吐测量都是**在一张 GPU 上**，横轴是 batch size，纵轴是
+tokens/second。轴够简单，因为唯一在竞争的是这张卡的算力和带宽。
 
-先理解：loss 是当前预测的误差；backward 计算各参数对 loss 的梯度；optimizer 根据梯度更新参数。一个 step 会改变权重，普通推理不会。
+进入 P2 训练场景，纵轴还是 tokens/sec，但横轴多了一个**GPU 数量**。天真的
+期望是：GPU 数量 × 单卡吞吐 = 总吞吐。实际不会这样——每一步反向传播完之后，
+DDP 都要在所有卡之间做一次 **all-reduce**（把每张卡算出来的梯度平均）。
+这一步是纯通信，不算数，加进去之后 scaling efficiency 一定 < 1。
 
-## Task 2：单卡训练基线（脚本已准备，待运行）
+**核心问题**：这个 efficiency 到底是 0.99（可以忽略），还是 0.5（一半时间在
+等）？答案取决于两个量的比例——**每一步的算量**（batch × model FLOPs）和
+**每一步的梯度体积**（模型参数量 × 4B fp32 或 2B fp16）。计算越多、梯度越少
+的时候，DDP 越接近理想线性 scaling。
 
-脚本：[experiments/wk15_training_baseline/train_step.py](experiments/wk15_training_baseline/train_step.py)。随机初始化的四层 causal Transformer，词表 4096、hidden size 256、batch 8、序列长度 256。先用 FP32 + AdamW，关闭 TF32，不使用 AMP 或 compile，便于解释显存组成。
+这周就是把这条曲线亲手画出来。
 
-```bash
-cd ~/projects/exp-llm
-modal run --detach experiments/wk15_training_baseline/train_step.py::bench
+---
+
+## 模型选型：为什么用 GPT-2 124M 而不是 Qwen2.5-7B
+
+- **7B 放不进单卡训练**：DDP 的前提是"模型能装进一张卡"，7B 训练要 ~28GB
+  权重 + ~28GB 梯度 + ~56GB 优化器状态 = ~112GB，一张 A100-80GB 装不下。
+  那是 Wk 17 FSDP 的题目，不是 Wk 15 DDP 的题目。
+- **124M 是纯 DDP 场景**：GPT-2 small 训练时占 ~2GB，两张卡各放一份完整
+  副本还有大量余量，通信路径清晰——只有反向传播后的梯度 all-reduce，没有
+  参数 shard 的复杂性。**先把这条最干净的 baseline 跑出来**，Wk 16-19 才有
+  东西对比。
+- **Karpathy 的 nanoGPT 是公开可复现的参考实现**：不用自己从零写一个训练
+  循环，专注在 DDP 本身。
+
+---
+
+## Task 1 — 单卡 baseline：先把"没通信"的天花板测出来
+
+- [ ] 写 `experiments/wk15_ddp/train_single.py`
+- [ ] GPT-2 124M（12 层、768 hidden、12 heads），合成随机 token 输入
+      （数据加载不是这周的题目，别在 tokenizer 和 dataloader 上耗时间）
+- [ ] batch size sweep：`per_gpu_bs = 4 / 16 / 64`
+- [ ] 测 100 步 warmup + 200 步稳定态的 **tokens/sec** 和 **step_time_ms**
+- [ ] 记录 GPU 显存占用（`torch.cuda.max_memory_allocated`）
+
+**预期**：batch 越大吞吐越高，因为算量对固定 kernel launch 开销的稀释率越高。
+和 P1 Wk 4 的 batch sweep 曲线形状类似，但绝对数字比推理低很多（训练的
+反向传播 FLOPs 是前向的 2 倍左右，序列长度也影响 attention 的二次项）。
+
+---
+
+## Task 2 — 双卡 DDP：同样的 per-GPU batch，测 scaling efficiency
+
+- [ ] 写 `experiments/wk15_ddp/train_ddp.py`——用 `torch.distributed` 起 DDP
+- [ ] Modal 上开一个 `gpu="A100-80GB"` 且 `gpu_count=2` 的 Function
+- [ ] **关键控制**：per-GPU batch size 保持和 Task 1 一样（4/16/64），这样
+      全局 batch 就是 2 倍。这样测出来的 tokens/sec 直接除以单卡数字，就是
+      scaling efficiency
+- [ ] 同样测 100 warmup + 200 稳定
+- [ ] 记录：`tokens_per_sec_ddp`、`ddp_step_time_ms`、`per_step_comm_ms`
+      （用 `torch.cuda.Event` 打点，把 all-reduce 那段圈出来）
+
+**核心指标**：
+
+```
+scaling_efficiency = tokens_per_sec_ddp / (tokens_per_sec_single × 2)
+comm_fraction = per_step_comm_ms / ddp_step_time_ms
 ```
 
-直接运行远程 `bench`，整个实验和结果保存都在该函数内完成，不依赖本地 entrypoint 继续调度。新训练镜像只安装固定版本 `torch==2.6.0`（CUDA 12.4 wheel），第一次需要构建；不复用 vLLM 镜像。脚本本地通过语法和 Modal 定义加载检查；CUDA 执行尚未验证。
+**预期**：
+- batch=4：算量小、每步很快、通信占比高 → efficiency 可能只有 0.7-0.85
+- batch=64：算量大、每步耗时长、通信被摊薄 → efficiency 应该 ≥ 0.95
+- 通信时间应该基本恒定（跟 batch 无关，只跟参数量有关）——这是这周
+  最想验证的一个直观预测
 
-每次运行保存独立 JSON 至 Modal Volume `training-baseline-results`，文件名在日志末尾。可在 Modal 控制台下载，也可以运行 `modal volume get training-baseline-results <日志里的文件名，不含/results/> ./`。
+如果实测反了，就说明我对 DDP 通信机制的理解有漏洞，比测数字本身更值得挖。
 
-先观察三个问题：
+---
 
-1. backward 后 `grad MiB` 是否接近 FP32 参数字节数？
-2. 首次 optimizer step 后 `Adam MiB` 是否接近参数字节数的两倍，之后是否保持稳定？
-3. `zero_grad(set_to_none=True)` 后梯度占用是否消失，而 Adam 状态仍在？
+## Task 3 — 对着 `torch.profiler` 看一步 DDP 的时间构成
 
-首次 step 与预热后 10 次的中位数分开报告。阶段之间同步会影响性能，因此这是诊断实验，不作为最大训练吞吐指标。JSON 保留 allocated/reserved/peak 和各阶段前后数据；forward 的分配增量不全是模型激活，也包含 loss 所需的中间 tensor。
+- [ ] 用 `torch.profiler.profile` 抓一步 DDP 的详细 trace
+- [ ] 找出：forward、backward、all-reduce、optimizer.step 各自占多少
+- [ ] 画一张 stacked bar：不同 batch size 下这四段的绝对时间
 
-测量接口参考：[PyTorch CUDA memory](https://docs.pytorch.org/docs/stable/cuda.html)、[AdamW](https://docs.pytorch.org/docs/main/generated/torch.optim.AdamW.html)。
+这个 trace 是 Wk 16 的钩子——Wk 16 要动 `bucket_cap_mb`（DDP 把小梯度攒成
+大 bucket 再发的阈值），需要先有一张"通信开销当前占多少"的图作为基准。
 
-使用 Modal 单卡 A100 和一个小型 PyTorch 模型，先测完整训练过程，再扩大规模。无需一开始加载 7B。
+---
 
-- [ ] 固定随机种子、模型规模、batch size、序列长度、精度和优化器，记录环境版本。
-- [ ] 分别测 forward/loss、backward、optimizer step 的耗时和显存。
-- [ ] GPU 计时使用 CUDA events 或同步边界，避免只测 CPU 提交时间。
-- [ ] 分开记录首次 step 和预热后的多次 step；Adam 的状态可能在首次更新时才分配。
-- [ ] 同时记录 allocated、reserved 和阶段 peak；不要把缓存分配器保留的显存全部当作活跃 tensor。
-- [ ] 用同一模型、同一输入做无梯度 forward 对照。这是训练开销对照，不等同于自回归生成 benchmark。
-- [ ] 输出 JSON 结果，检查 loss/梯度有限且参数发生更新；合成数据仅验证训练与性能，不代表真实任务质量。
+## Task 4 — 日志
 
-## Task 3：两卡 DDP（接续实验）
+- [ ] 更新 `progress.md` Wk 15 那一行
+- [ ] `benchmarks/README.md` 加 P2 段落 + Wk 15 结果表
+- [ ] commit + push（每个文件单独一次，一如既往）
 
-- [ ] 理解每张卡保存完整模型，各自处理不同数据；backward 时同步梯度。
-- [ ] 用相同 global batch 比较单卡与两卡，再单独测固定 per-GPU batch 的吞吐扩展。
-- [ ] 报告 global batch = per-GPU batch × GPU 数 × 梯度累积次数。
-- [ ] 比较 step time、全局 samples/tokens per second、每卡显存；说明通信开销与计算重叠。
-- [ ] 回答：为什么 DDP 通常不能解决单个完整模型训练状态放不进一张卡的问题？用它引出后续 FSDP/ZeRO。
+---
 
-## 完成标准
+## What "done" for Wk 15 looks like
 
-能解释一次参数更新的数据流；有可复现的单卡基线与两卡对照；分清模型复制和状态分片。没有实测前不填写性能结论。
+1. 有一张跨 3 档 batch 的 scaling efficiency 表：单卡吞吐、双卡吞吐、efficiency 比值
+2. 有一张 profiler 的时间构成图：forward / backward / comm / optim 各占多少
+3. 回答了本周开头的核心问题："什么条件下 DDP 通信开销大到值得关注"
+4. Wk 16 可以直接从这些数字接过去，不用重跑 baseline
 
-## Phase 1 收尾仍保留
+---
 
-交互网页已经发布。Wk 13–14 的 README 复现说明、测量口径和总结仍需核对，不因进入训练学习就自动标为完成。
+## 结果（跑完后填）
+
+### Task 1 — 单卡 baseline
+
+### Task 2 — 双卡 DDP + scaling efficiency
+
+### Task 3 — profiler 时间构成
+
+### 复盘：预测对了什么、错了什么
