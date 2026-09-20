@@ -4,7 +4,8 @@ Reproducible benchmarks for LLM serving on a single GPU.
 Comparing HuggingFace transformers baseline vs vLLM with continuous
 batching, PagedAttention, prefix caching, and quantization.
 
-**Status**: Week 11 of 14 — roofline, CUDA graph, and quantization complete.
+**Status**: Phase 1 complete (Wk 1-14). Phase 2 (distributed training) results
+are in [`README_training.md`](README_training.md), starting from Wk 15.
 
 ## Roofline Ridge Point + CUDA Graph + MFU/MBU (Week 11)
 
