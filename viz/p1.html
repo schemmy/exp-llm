@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Journey of One Token</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ground:#0E141B; --surface:#161F2A; --surface-2:#1E2936;
+    --line:#2A3846; --line-soft:#213040;
+    --text:#DCE5EE; --dim:#8496A8; --faint:#5D7188;
+    --compute:#F0883E; --compute-soft:#5A3A1E;
+    --bandwidth:#4CA6E0; --bandwidth-soft:#1B354A;
+    --hit:#56D68A; --hit-soft:#1C3E2C;
+    --measured:#B98BE0;
+    --sans:"IBM Plex Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --display:"Archivo","IBM Plex Sans","PingFang SC","Hiragino Sans GB",sans-serif;
+    --mono:"IBM Plex Mono","SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:920px;margin:0 auto;padding:0 24px}
+
+  .lang-toggle{position:fixed;top:18px;right:18px;z-index:50;display:flex;background:var(--surface-2);border:1px solid var(--line);border-radius:20px;padding:3px;gap:2px;box-shadow:0 4px 16px rgba(0,0,0,.35)}
+  .lang-toggle button{font-family:var(--mono);font-size:11px;font-weight:600;border:none;background:none;color:var(--faint);cursor:pointer;padding:6px 12px;border-radius:16px;transition:all .15s}
+  .lang-toggle button:hover{color:var(--text)}
+  .lang-toggle button.active{background:var(--bandwidth-soft);color:var(--bandwidth)}
+
+  header{padding:96px 0 56px;border-bottom:1px solid var(--line-soft);background:radial-gradient(1200px 300px at 50% -50px,#152030 0%,var(--ground) 60%)}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin:0 0 18px}
+  h1{font-family:var(--display);font-weight:800;font-size:clamp(36px,6vw,64px);letter-spacing:-.025em;line-height:1.05;margin:0 0 22px;text-wrap:balance}
+  h1 .accent{color:var(--measured)}
+  .lede{max-width:64ch;color:var(--dim);font-size:17px;margin:0 0 6px}
+  .lede b{color:var(--text);font-weight:500}
+  .lede a{color:var(--bandwidth)}
+
+  main{padding:56px 0 40px}
+  .toc-tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin:0 0 22px;display:flex;align-items:center;gap:12px}
+  .toc-tag::after{content:"";flex:1;height:1px;background:var(--line-soft)}
+
+  .card{display:block;text-decoration:none;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:28px 30px;margin:0 0 18px;transition:border-color .18s,transform .18s,background .18s;position:relative;overflow:hidden}
+  .card:hover{border-color:var(--bandwidth);background:#182432;transform:translateY(-1px)}
+  .card .num{position:absolute;top:20px;right:24px;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;color:var(--faint)}
+  .card .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--measured);margin:0 0 10px}
+  .card h2{font-family:var(--display);font-weight:700;font-size:clamp(22px,3vw,29px);margin:0 0 12px;letter-spacing:-.015em;line-height:1.15;color:var(--text)}
+  .card .hook{color:var(--dim);font-size:15.5px;line-height:1.6;margin:0 0 18px;max-width:62ch}
+  .card .hook b{color:var(--text);font-weight:500}
+  .card .go{font-family:var(--mono);font-size:12px;color:var(--bandwidth);letter-spacing:.04em;display:inline-flex;align-items:center;gap:6px}
+  .card .go::after{content:"→";transition:transform .18s}
+  .card:hover .go::after{transform:translateX(3px)}
+
+  .companion{background:var(--surface-2);border-style:dashed}
+  .companion .kicker{color:var(--faint)}
+
+  footer{padding:36px 0 72px;color:var(--faint);font-size:13.5px;border-top:1px solid var(--line-soft);margin-top:12px}
+  footer a{color:var(--dim);border-bottom:1px dashed var(--line);padding-bottom:1px}
+  footer a:hover{color:var(--bandwidth);border-color:var(--bandwidth)}
+  footer p{margin:0 0 8px}
+
+  @media (max-width: 500px){
+    header{padding:64px 0 36px}
+    .card{padding:22px 22px}
+    .card .num{position:static;display:block;margin:0 0 4px}
+  }
+
+  @media (prefers-reduced-motion:reduce){*{transition-duration:.01ms !important;animation-duration:.01ms !important}}
+</style>
+</head>
+<body>
+
+<div class="lang-toggle">
+  <button id="lang-en" type="button">EN</button>
+  <button id="lang-zh" type="button">中文</button>
+</div>
+
+<header>
+  <div class="wrap">
+    <p class="eyebrow" id="t-eyebrow"></p>
+    <h1 id="t-h1"></h1>
+    <p class="lede" id="t-lede"></p>
+  </div>
+</header>
+
+<main class="wrap">
+  <p class="toc-tag" id="t-toc"></p>
+  <div id="cards"></div>
+</main>
+
+<footer class="wrap">
+  <p id="t-foot1"></p>
+  <p id="t-foot2"></p>
+</footer>
+
+<script>
+(function(){
+"use strict";
+let LANG = localStorage.getItem("journey-lang") || "en";
+function tv(f){ return typeof f === "string" ? f : f[LANG]; }
+
+const UI = {
+  title: {
+    en: `The Journey of <span class="accent">One Token</span>`,
+    zh: `<span class="accent">一个 token</span> 的旅程`,
+  },
+  eyebrow: {
+    en: "Inference from first principles · Qwen2.5-7B on A100 → trillion-parameter MoE",
+    zh: "从第一性原理看推理 · A100 上的 Qwen2.5-7B → 万亿参数 MoE",
+  },
+  lede: {
+    en: `For the past few months I've been trying to build a proper mechanical
+         picture of what actually happens inside an LLM inference server — from
+         a request landing at a load balancer to a byte leaving HBM. The three
+         pieces below each answer <b>a different-sized version of the same
+         question</b>, and every quantitative claim is backed by measurements on
+         GPUs I actually rented.`,
+    zh: `过去几个月我一直在尝试建立一个准确的机械模型，讲清楚 LLM 推理服务器内部
+         究竟发生了什么——从一个请求落到负载均衡器，到一个字节离开 HBM。下面三块
+         内容各自回答<b>同一个问题的不同尺度</b>，所有量化结论都基于我真实租下来
+         的 GPU 上跑出来的数据。`,
+  },
+  toc: { en: "Three pieces", zh: "三块内容" },
+  foot1: {
+    en: `All source, all raw measurements, and every experiment script live in
+         <a href="https://github.com/schemmy/exp-llm">github.com/schemmy/exp-llm</a>
+         (public, MIT). Findings that turned out wrong are kept intact in the
+         commit history — the interesting ones (EP was a net loss at 60 experts,
+         CUDA graph beat the naive estimate by 2x) are footnoted where they
+         land.`,
+    zh: `所有源码、原始测量数据、以及每个实验的脚本都在
+         <a href="https://github.com/schemmy/exp-llm">github.com/schemmy/exp-llm</a>
+         （公开，MIT）。事后证明错了的预测原样保留在 commit 历史里——比较有趣的
+         几处（60 专家 MoE 上 EP 是净亏、CUDA graph 比朴素估算多出 2 倍）在对应
+         页面里都标出来了。`,
+  },
+  foot2: {
+    en: `Design and implementation notes for these pages are in
+         <a href="https://github.com/schemmy/exp-llm/blob/main/viz/scaling_topology.md">viz/scaling_topology.md</a>.`,
+    zh: `这些页面的设计与实现笔记在
+         <a href="https://github.com/schemmy/exp-llm/blob/main/viz/scaling_topology.md">viz/scaling_topology.md</a>。`,
+  },
+};
+
+const CARDS = [
+  {
+    href: "request_journey.html",
+    num: "01",
+    kicker: { en: "One request · one GPU · 12 stops", zh: "一个请求 · 一张 GPU · 12 站" },
+    title: {
+      en: "The Journey of One Request",
+      zh: "一个请求的旅程",
+    },
+    hook: {
+      en: `Follow a single request from the moment it hits the load balancer to
+           the moment the last token comes back. Each of the 12 stops is a
+           <b>real mechanism</b> — the queue, the prefill vs decode split, the
+           KV cache being read, prefix caching, speculative decoding — with an
+           inline glossary you can click for definitions on demand.`,
+      zh: `跟着一个请求，从它落到负载均衡器开始，到最后一个 token 生成完毕为止。
+           12 站里的每一站都是一个<b>真实机制</b>——排队、prefill 与 decode 的分界、
+           KV cache 的读取、前缀缓存、投机解码——每个专有名词都可以点开看解释。`,
+    },
+    go: { en: "Open · animated & interactive", zh: "打开 · 动画 + 交互" },
+  },
+  {
+    href: "scaling_topology.html",
+    num: "02",
+    kicker: { en: "Scale up · 16 GPUs · 1T-parameter MoE", zh: "放大到 · 16 张 GPU · 1T 参数 MoE" },
+    title: {
+      en: "Serving a Trillion Parameters",
+      zh: "服务一个万亿参数模型",
+    },
+    hook: {
+      en: `Zoom the same question up to a model that doesn't fit on one card —
+           or eight, or sixteen. Four nested levels: <b>data center → nodes →
+           GPUs → SM</b>. Watch what happens to weights (they stay put), the
+           KV cache (it never travels), and the one thing that does move —
+           your token's activation — as it crosses NVLink, InfiniBand, and
+           finally HBM.`,
+      zh: `把同一个问题放大到一张卡装不下的模型——八张也装不下、十六张也得精心安排。
+           四层嵌套：<b>数据中心 → 节点 → GPU → SM</b>。看看权重（不动）、KV cache
+           （不移动）、以及唯一会动的东西——你这个 token 的激活值——分别在
+           NVLink、InfiniBand、和最后的 HBM 里各走了怎样的路。`,
+    },
+    go: { en: "Open · expandable diagram", zh: "打开 · 可展开图" },
+  },
+  {
+    href: "phase1.html",
+    num: "03",
+    kicker: { en: "The mechanisms, plus the numbers", zh: "机制 + 数据" },
+    title: {
+      en: "The Inference Engine, in Cross-Section",
+      zh: "推理引擎剖面",
+    },
+    hook: {
+      en: `The technical companion to the first two. Prefill (compute-bound)
+           vs. decode (bandwidth-bound), continuous batching, PagedAttention,
+           prefix caching, speculative decoding — each explained mechanically
+           with a chart, then a <b>results table</b> at the bottom summarizing
+           every measured speedup across all 12 weeks of the work.`,
+      zh: `前两块的技术姊妹篇。Prefill（compute-bound）与 decode（bandwidth-bound）、
+           连续批处理、PagedAttention、前缀缓存、投机解码——每一个都用一张图讲清楚
+           机制，页面底部有一张<b>汇总结果表</b>，把 12 周里每个实验测到的加速比都
+           列出来。`,
+    },
+    go: { en: "Open · long-form with charts", zh: "打开 · 图文长篇" },
+    companion: true,
+  },
+];
+
+function render(){
+  document.title = LANG === "zh" ? "一个 token 的旅程" : "The Journey of One Token";
+  document.documentElement.lang = LANG === "zh" ? "zh-CN" : "en";
+  document.getElementById("t-eyebrow").textContent = tv(UI.eyebrow);
+  document.getElementById("t-h1").innerHTML = tv(UI.title);
+  document.getElementById("t-lede").innerHTML = tv(UI.lede);
+  document.getElementById("t-toc").textContent = tv(UI.toc);
+  document.getElementById("t-foot1").innerHTML = tv(UI.foot1);
+  document.getElementById("t-foot2").innerHTML = tv(UI.foot2);
+  document.getElementById("lang-en").classList.toggle("active", LANG==="en");
+  document.getElementById("lang-zh").classList.toggle("active", LANG==="zh");
+
+  document.getElementById("cards").innerHTML = CARDS.map(c => `
+    <a class="card ${c.companion?'companion':''}" href="${c.href}">
+      <span class="num">${c.num}</span>
+      <div class="kicker">${tv(c.kicker)}</div>
+      <h2>${tv(c.title)}</h2>
+      <p class="hook">${tv(c.hook)}</p>
+      <span class="go">${tv(c.go)}</span>
+    </a>
+  `).join("");
+}
+
+document.getElementById("lang-en").addEventListener("click", () => {
+  if(LANG==="en") return; LANG="en"; localStorage.setItem("journey-lang","en"); render();
+});
+document.getElementById("lang-zh").addEventListener("click", () => {
+  if(LANG==="zh") return; LANG="zh"; localStorage.setItem("journey-lang","zh"); render();
+});
+
+render();
+})();
+</script>
+</body>
+</html>
