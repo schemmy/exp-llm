@@ -31,7 +31,37 @@ Convention: one line per week. Mark ✅ done, 🟡 partial, ❌ skipped. Add a l
 
 ## Phase 2 — Distributed training (Wk 15-26)
 
-To be filled in at end of Wk 14.
+Goal (from PLAN.md): DDP → FSDP → LoRA fine-tune a 7B model, understand ZeRO
+stages. Anchor: **Stanford CS336** as reference material for concepts; not
+followed assignment-by-assignment (P1 pattern: measured experiments on rented
+GPUs, not from-scratch homework).
+
+| Wk | Dates | Task summary | Status | Artifact / notes |
+|----|-------|--------------|--------|------------------|
+| 15 | 12-06 → 12-12 | PyTorch DDP baseline on 2× A100: measure scaling efficiency on a small model as batch size / model size vary | ☐ | |
+| 16 | 12-13 → 12-19 | DDP gradient bucketing internals; find where DDP overhead lives; sweep bucket_cap_mb | ☐ | |
+| 17 | 12-20 → 12-26 | FSDP full-shard on 7B model (Qwen2.5-7B); measure memory vs DDP baseline | ☐ | |
+| 18 | 12-27 → 01-02 | ZeRO-1 vs ZeRO-2 vs ZeRO-3 (via FSDP sharding strategies): memory vs throughput tradeoff | ☐ | |
+| 19 | 01-03 → 01-09 | Activation checkpointing on/off; CPU offload on/off — orthogonal knobs added to FSDP | ☐ | |
+| 20 | 01-10 → 01-16 | Pick the LoRA fine-tune target task (code repair vs SQL-gen vs domain classification); prep dataset | ☐ | |
+| 21 | 01-17 → 01-23 | LoRA fine-tune the 7B on the chosen task; measure baseline eval | ☐ | |
+| 22 | 01-24 → 01-30 | QLoRA (4-bit base + LoRA adapters): does quantization + LoRA compose? Compare eval and speed | ☐ | |
+| 23 | 01-31 → 02-06 | LoRA rank / target-module sweep; find the pareto frontier for this task | ☐ | |
+| 24 | 02-07 → 02-13 | Merged-vs-adapter serving; do the LoRA weights + merged model round-trip cleanly under vLLM? | ☐ | |
+| 25 | 02-14 → 02-20 | Blog #2 / interactive draft | ☐ | |
+| 26 | 02-21 → 02-27 | **Publish Blog #2** | ☐ | |
+
+**Format**: same as P1 — one `weekNN.md` per week with concrete tasks +
+results, one `experiments/wkNN_*/` folder per week, results feed into
+`benchmarks/README.md`, one-file-per-commit workflow.
+
+**Open decisions**:
+- LoRA target task (Wk 20 decision): PLAN.md lists code repair vs SQL-gen vs
+  domain classification. Pick based on which has the cleanest eval harness.
+- Blog #2 format: presumed same as Blog #1 (interactive over prose). Confirm
+  around Wk 24.
+
+**P2 retro** (fill after Wk 26): what worked / what didn't / adjust for P3?
 
 ---
 
