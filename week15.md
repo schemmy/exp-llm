@@ -87,9 +87,11 @@ comm_fraction = per_step_comm_ms / ddp_step_time_ms
 
 ## Task 3 — 对着 `torch.profiler` 看一步 DDP 的时间构成
 
-- [ ] 用 `torch.profiler.profile` 抓一步 DDP 的详细 trace
-- [ ] 找出：forward、backward、all-reduce、optimizer.step 各自占多少
-- [ ] 画一张 stacked bar：不同 batch size 下这四段的绝对时间
+- [x] 用 `torch.profiler.profile` 抓一步 DDP 的详细 trace（batch=16，10 步）
+- [x] 找出 comm（nccl/all-reduce）占总 CUDA 时间的比例：**4.41%**
+- [ ] ~~画一张 stacked bar：不同 batch size 下这四段的绝对时间~~ ——
+      只在 batch=16 抓了一次 trace（脚本设计如此，避免三档 batch 各抓一次
+      拉长运行时间），没有跨 batch 的对比图。如果 Wk 16 需要，可以再补
 
 这个 trace 是 Wk 16 的钩子——Wk 16 要动 `bucket_cap_mb`（DDP 把小梯度攒成
 大 bucket 再发的阈值），需要先有一张"通信开销当前占多少"的图作为基准。
@@ -98,9 +100,9 @@ comm_fraction = per_step_comm_ms / ddp_step_time_ms
 
 ## Task 4 — 日志
 
-- [ ] 更新 `progress.md` Wk 15 那一行
-- [ ] `benchmarks/README.md` 加 P2 段落 + Wk 15 结果表
-- [ ] commit + push（每个文件单独一次，一如既往）
+- [x] 更新 `progress.md` Wk 15 那一行
+- [x] 新建 `benchmarks/README_training.md`（P2 专用，`README.md` 是 P1 inference-only 范围，标题名不副实所以没往里塞）+ Wk 15 结果表
+- [x] commit + push（每个文件单独一次，一如既往）
 
 ---
 
@@ -113,12 +115,67 @@ comm_fraction = per_step_comm_ms / ddp_step_time_ms
 
 ---
 
-## 结果（跑完后填）
+## 结果
 
 ### Task 1 — 单卡 baseline
 
+| batch | tok/s | step time | 显存峰值 |
+|---|---|---|---|
+| 4  | 17,921.3 | 114.28ms | 5.48 GB |
+| 16 | 19,633.2 | 417.25ms | 17.37 GB |
+| 64 | 20,603.2 | 1590.43ms | 64.95 GB |
+
 ### Task 2 — 双卡 DDP + scaling efficiency
 
-### Task 3 — profiler 时间构成
+| batch | 单卡 tok/s | DDP 总 tok/s（2×） | scaling efficiency |
+|---|---|---|---|
+| 4  | 17,921.3 | 34,608.9 | **96.56%** |
+| 16 | 19,633.2 | 38,814.8 | **98.85%** |
+| 64 | 20,603.2 | 41,190.0 | **99.96%** |
+
+*DDP 存的 `tokens_per_sec` 是 rank 0 自己那张卡的数字（自己的 batch / 自己的
+墙钟时间），不是系统总吞吐——但因为每步都靠阻塞式 all-reduce 强制同步，两张卡
+的节奏锁在一起，rank 0 的节奏就代表了整个系统的节奏，所以总吞吐 = rank0 数字 × 2。*
+
+### Task 3 — profiler 时间构成（batch=16）
+
+**comm_fraction（nccl/all-reduce 占总 CUDA 时间）: 4.41%**
+
+耗时最长的几类 CUDA 操作（10 步累计）：`aten::mm` 2587.6ms（990 次）、
+`AddmmBackward0`（自动微分节点）~1567-1591ms（480 次）、
+`DistributedDataParallel.forward` ~1390-1428ms（10 次，奇怪的是这个名字
+出现了两条条目、数字很接近但不完全一样——没深挖，留作疑点）、
+`aten::addmm` 780.0ms（480 次）。矩阵乘和它的反向占大头，nccl 相关操作
+只是一小片，跟上面接近 100% 的 scaling efficiency 是一致的。
 
 ### 复盘：预测对了什么、错了什么
+
+**预测错了（week15.md 开头写的）**：以为 batch 小的时候通信开销占比高，
+efficiency 会明显掉，猜 batch=4 大概只有 0.7-0.85。**实测 batch=4 就有
+96.56%**，跟 batch=64 的 99.96% 差距很小。
+
+**为什么错**：GPT-2 124M 太小了——梯度体积只有 ~500MB（fp32，一步同步一次），
+DDP 的 bucket 机制会在反向传播还没走完的时候就开始异步发出已经算好的那些
+bucket 的 all-reduce，跟还在跑的反向计算重叠起来。只要模型不是大到让梯度
+体积和算力不成比例，这个重叠机制几乎能把通信开销全部藏起来——**这周真正
+验证的是"DDP 的重叠设计有多有效"，而不是"通信开销有多大"**。
+
+这也解释了 comm_fraction（4.41%）比 batch=16 实测的 efficiency 损失
+（100% - 98.85% = 1.15%）大：4.41% 是不重叠情况下 comm 会占的原始 CUDA
+时间比例，重叠掉了大部分之后，真正体现在墙钟时间上的损失更小。
+
+**跑的过程中撞到两个 bug**（都在 `ddp_scaling.py` 的 commit 历史里）：
+1. `torch.profiler` 的 `FunctionEventAvg.cuda_time_total` 属性在当前 torch
+   版本被改名成 `device_time_total`，导致 `ddp_bs16` 那一腿直接崩溃，
+   没存下任何结果——重跑了这一腿才修好。
+2. 脚本里打印 scaling efficiency 的公式多除了一次 2（`d_tps/(2*s_tps)`），
+   第一次跑出来的数字（48%/50%）比真实值（96.6%/100%）低了将近一半——
+   这个是纯算式错误，不是数据本身有问题，改完公式后原始数据直接复用，
+   不用重跑 single/ddp_bs4/ddp_bs64 那几腿。
+
+**给 Wk 16 的钩子**：Wk 16 要动 `bucket_cap_mb`（bucket 分组阈值），
+既然这周发现"重叠"是 DDP 几乎不掉速的主因，Wk 16 更该问的问题是——
+调小 bucket 阈值（更早触发 all-reduce，重叠窗口更长）还是调大
+（更少次数的 all-reduce，但重叠窗口更短）对这个几乎已经 100% 高效的
+场景还有没有意义？还是说 GPT-2 124M 这个规模下已经是重叠饱和了，
+调 bucket 大小根本测不出差别，得换更大的模型才能看到效果？
