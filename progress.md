@@ -29,12 +29,12 @@ Convention: one line per week. Mark ✅ done, 🟡 partial, ❌ skipped. Add a l
 
 ---
 
-## Phase 2 — Distributed training (Wk 15-26)
+## Phase 2 — Distributed training (Wk 15-28)
 
-Goal (from PLAN.md): DDP → FSDP → LoRA fine-tune a 7B model, understand ZeRO
-stages. Anchor: **Stanford CS336** as reference material for concepts; not
-followed assignment-by-assignment (P1 pattern: measured experiments on rented
-GPUs, not from-scratch homework).
+Goal (from PLAN.md): DDP → FSDP → LoRA → DPO fine-tune a 7B model, understand
+ZeRO stages. Anchor: **Stanford CS336** as reference material for concepts;
+not followed assignment-by-assignment (P1 pattern: measured experiments on
+rented GPUs, not from-scratch homework).
 
 | Wk | Dates | Task summary | Status | Artifact / notes |
 |----|-------|--------------|--------|------------------|
@@ -48,8 +48,10 @@ GPUs, not from-scratch homework).
 | 22 | 01-24 → 01-30 | QLoRA (4-bit base + LoRA adapters): does quantization + LoRA compose? Compare eval and speed | ☐ | |
 | 23 | 01-31 → 02-06 | LoRA rank / target-module sweep; find the pareto frontier for this task | ☐ | |
 | 24 | 02-07 → 02-13 | Merged-vs-adapter serving; do the LoRA weights + merged model round-trip cleanly under vLLM? | ☐ | |
-| 25 | 02-14 → 02-20 | Blog #2 / interactive draft | ☐ | |
-| 26 | 02-21 → 02-27 | **Publish Blog #2** | ☐ | |
+| 25 | 02-14 → 02-20 | DPO setup: build a preference-pair dataset from the Wk 20-24 task; DPO loss on top of the LoRA adapter | ☐ | |
+| 26 | 02-21 → 02-27 | DPO vs SFT-only eval: does preference tuning actually move the metric the pairs were built for? | ☐ | |
+| 27 | 02-28 → 03-06 | Blog #2 / interactive draft | ☐ | |
+| 28 | 03-07 → 03-13 | **Publish Blog #2** | ☐ | |
 
 **Format**: same as P1 — one `weekNN.md` per week with concrete tasks +
 results, one `experiments/wkNN_*/` folder per week, results feed into
@@ -57,23 +59,51 @@ results, one `experiments/wkNN_*/` folder per week, results feed into
 
 **Open decisions**:
 - LoRA target task (Wk 20 decision): PLAN.md lists code repair vs SQL-gen vs
-  domain classification. Pick based on which has the cleanest eval harness.
+  domain classification. Pick based on which has the cleanest eval harness —
+  this task also has to support building a preference-pair dataset for DPO
+  at Wk 25, so favor a task where "output A is better than output B" is
+  cheap to judge (e.g. a rubric or a test suite), not one needing human
+  labeling.
 - Blog #2 format: presumed same as Blog #1 (interactive over prose). Confirm
   around Wk 24.
 
-**P2 retro** (fill after Wk 26): what worked / what didn't / adjust for P3?
+**Added 2026-09-19 — DPO in, full RLHF deferred.** Asked directly whether P2
+should include RLHF. Decision: add **DPO only** (Wk 25-26), not full
+PPO + reward-model RLHF. Reasoning: DPO reuses the exact fine-tuning
+infrastructure this phase already builds (same LoRA setup, just a different
+loss over preference pairs) — no reward model, no PPO, no KL-penalty
+machinery to stand up. Full RLHF would add 4-5 weeks and pull P2 from 14
+weeks to 18-19, on top of P1 already growing from 12 to 14. Direction is
+still infra-leaning (Anthropic Fleet / Together / Fireworks-style roles),
+where RLHF specifically is not the gap — DPO closes the "have I done any
+preference optimization at all" gap at much lower cost.
+
+**Revisit full RLHF (PPO + reward model) if:**
+- the target-company list shifts toward roles where alignment/RLHF is
+  actually asked about (e.g. OpenAI applied ML, model-behavior-adjacent
+  roles) rather than pure infra/serving roles, or
+- DPO at Wk 25-26 turns out unsatisfying / raises questions that only a
+  full RL loop would answer (e.g. curiosity about reward hacking, KL
+  control, on-policy vs off-policy tradeoffs).
+
+If it comes back, it most naturally slots as an added P2.5 block (4-5 weeks)
+or folds into P4's swappable slot (P4 already flags itself as OSS-vs-CUDA
+swappable — RLHF could compete for that slot too) — not squeezed into the
+existing P2 weeks.
+
+**P2 retro** (fill after Wk 28): what worked / what didn't / adjust for P3?
 
 ---
 
-## Phase 3 — GPU serving + platform (Wk 27-38)
+## Phase 3 — GPU serving + platform (Wk 29-40)
 
-To be filled in at end of Wk 26.
+To be filled in at end of Wk 28.
 
 ---
 
-## Phase 4 — CUDA + systems depth (Wk 39-52)
+## Phase 4 — CUDA + systems depth (Wk 41-54)
 
-To be filled in at end of Wk 38. Reevaluate whether to stick with CUDA vs. swap to OSS-contribution track.
+To be filled in at end of Wk 40. Reevaluate whether to stick with CUDA vs. swap to OSS-contribution track (DPO's deferred RLHF sibling is now also a candidate for this swappable slot — see the P2 note above).
 
 ---
 
