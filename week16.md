@@ -46,14 +46,13 @@ GPT-2 Large（36 层、1280 hidden、20 heads，774M 参数）梯度体积 ~3.1G
 
 ## Task 1 — GPT-2 124M 上先测一遍：bucket_cap_mb 有没有可测的影响
 
-- [ ] 复用 `experiments/wk15_ddp/ddp_scaling.py` 里的 `ddp_worker`/`run_steps`，
+- [x] 复用 `experiments/wk15_ddp/ddp_scaling.py` 里的 `ddp_worker`/`run_steps`，
       加一个 `bucket_cap_mb` 参数传给 `DDP(...)` 构造函数
-- [ ] 固定 batch=16（Wk 15 的中间档，也是抓过 profiler trace 的那档，
+- [x] 固定 batch=16（Wk 15 的中间档，也是抓过 profiler trace 的那档，
       方便直接对比）
-- [ ] `bucket_cap_mb` 扫 4 个值：**1 / 25（默认）/ 100 / 500（约等于全模型
+- [x] `bucket_cap_mb` 扫 4 个值：**1 / 25（默认）/ 100 / 500（约等于全模型
       一个 bucket，因为整个模型梯度只有 ~500MB）**
-- [ ] 每档都测 tokens/sec + `all_reduce` 调用次数（`torch.profiler` 里数
-      nccl 相关事件的 `count`）
+- [x] 每档都测 tokens/sec + `all_reduce` 调用次数
 
 **预期**：如果 Wk 15 的假设对，四档吞吐应该几乎一样（重叠已经饱和，
 切多细都无所谓）。`all_reduce` 调用次数应该随 bucket 变小而增多——
@@ -64,13 +63,13 @@ GPT-2 Large（36 层、1280 hidden、20 heads，774M 参数）梯度体积 ~3.1G
 
 ## Task 2 — GPT-2 Large（774M）上重复同一个 sweep
 
-- [ ] 同样的四档 `bucket_cap_mb`（1 / 25 / 100 / 500），换成 GPT-2 Large
-- [ ] batch 只测一档（16，per-GPU）——这周的变量是 bucket size 和模型大小，
+- [x] 同样的四档 `bucket_cap_mb`（1 / 25 / 100 / 500），换成 GPT-2 Large
+- [x] batch 只测一档（16，per-GPU）——这周的变量是 bucket size 和模型大小，
       不是 batch，没必要重新扫三档 batch 把成本拉高
-- [ ] 顺带测一下 774M 在默认 bucket_cap_mb=25 下的 scaling efficiency，
+- [x] 顺带测一下 774M 在默认 bucket_cap_mb=25 下的 scaling efficiency，
       跟 Wk 15 的 124M 数字放在一起看——**这是本周最想要的一个数字**：
       同样是"重叠机制"，模型大 6 倍之后 efficiency 还能不能维持在
-      99% 附近？
+      99% 附近？——**测出来了，但数字不可信，见下面"复盘"**
 
 **预期**：774M 的 efficiency 应该比 124M 略低（梯度体积变大，需要重叠的
 通信量变多），且 bucket_cap_mb 在这个体量上开始表现出可测的差异——
@@ -81,19 +80,21 @@ GPT-2 Large（36 层、1280 hidden、20 heads，774M 参数）梯度体积 ~3.1G
 
 ## Task 3 — 汇总：重叠饱和的门槛在哪
 
-- [ ] 一张表：模型大小（124M / 774M）× bucket_cap_mb（4 档）→ tokens/sec
+- [x] 一张表：模型大小（124M / 774M）× bucket_cap_mb（4 档）→ tokens/sec
       + scaling efficiency
-- [ ] 回答本周开头的问题：bucket 大小什么时候开始重要，什么时候不重要
-- [ ] 如果两档模型都测不出 bucket_cap_mb 的影响——那也是一个完整的结论，
-      如实记录，不要为了"有发现"而过度解读噪声
+- [x] 回答本周开头的问题：bucket 大小什么时候开始重要，什么时候不重要——
+      **两档模型都不重要**（在这个 batch/序列长度组合下）
+- [x] 两档模型都测不出 bucket_cap_mb 的影响——如实记录，没有为了"有发现"
+      而过度解读噪声（尤其是 774M 那组先降后升的走势，明确判定为噪声，
+      没有编故事）
 
 ---
 
 ## Task 4 — 日志
 
-- [ ] 更新 `progress.md` Wk 16 那一行
-- [ ] `benchmarks/README_training.md` 加 Wk 16 结果表
-- [ ] commit + push（每个文件单独一次）
+- [x] 更新 `progress.md` Wk 16 那一行
+- [x] `benchmarks/README_training.md` 加 Wk 16 结果表
+- [x] commit + push（每个文件单独一次）
 
 ---
 
@@ -111,12 +112,90 @@ GPT-2 Large（36 层、1280 hidden、20 heads，774M 参数）梯度体积 ~3.1G
 
 ---
 
-## 结果（跑完后填）
+## 结果
 
-### Task 1 — GPT-2 124M：bucket_cap_mb sweep
+### Task 1 — GPT-2 124M：bucket_cap_mb sweep（batch=16）
 
-### Task 2 — GPT-2 Large 774M：bucket_cap_mb sweep + scaling efficiency
+| bucket_cap_mb | tok/s | step time | all-reduce 调用次数 | 显存峰值 |
+|---|---|---|---|---|
+| 1   | 19,409.8 | 422.05ms | 2000 | 17.87 GB |
+| 25（默认） | 19,461.4 | 420.94ms | 520 | 17.86 GB |
+| 100 | 19,431.1 | 421.59ms | 160 | 17.87 GB |
+| 500 | 19,367.7 | 422.97ms | 40 | 17.87 GB |
+
+四档吞吐差距全部 <0.5%（19,367.7 ~ 19,461.4），跟噪声没区别。
+`all_reduce` 调用次数随 bucket 变大正确地递减（2000→520→160→40），
+测量方法本身没问题，只是这个体量下调 bucket 大小对吞吐**没有可测的影响**。
+跟 Wk 15 的 `ddp_bs16`（rank0 tok/s 19,407.4）也对得上，两次实验一致。
+
+### Task 2 — GPT-2 Large 774M：bucket_cap_mb sweep + scaling efficiency（batch=16）
+
+| bucket_cap_mb | tok/s | step time | all-reduce 调用次数 | 显存峰值 |
+|---|---|---|---|---|
+| 1   | 3,355.8 | 2441.18ms | 5840 | 66.60 GB |
+| 25（默认） | 3,335.0 | 2456.34ms | 4360 | 66.60 GB |
+| 100 | 3,329.9 | 2460.10ms | 1120 | 66.60 GB |
+| 500 | 3,368.2 | 2432.14ms | 240  | 66.60 GB |
+
+四档吞吐全程在 3,329.9 ~ 3,368.2 之间，波动 <1.2%，而且**走势不是单调的**
+（先降一点再升回去）——跟 124M 一样，判定为噪声，不是真实效应。
+
+**Scaling efficiency（774M，bucket_cap_mb=25）**：
+
+| | tok/s |
+|---|---|
+| 单卡 (`single_large`) | 3,072.6 |
+| DDP rank0 (`large_b25`) | 3,335.0 |
+| **efficiency** | **108.54%** |
+
+**这个数字不可信，原因见下面"复盘"。**
 
 ### Task 3 — 汇总与结论
 
+| 模型 | bucket_cap_mb 是否有可测影响 | 吞吐波动范围 |
+|---|---|---|
+| GPT-2 124M | 否 | <0.5% |
+| GPT-2 Large 774M | 否 | <1.2%，且非单调 |
+
+**在这周测的两个模型规模、这个 batch/序列长度组合下，`bucket_cap_mb`
+对吞吐没有可测的影响。** 没有找到"多大才测得出"的门槛——两档都没测出来，
+说明门槛比 774M 更高，或者这个参数在当前的软硬件组合（A100 + NVLink）下
+本来就很难通过调 bucket 大小看到收益，因为默认值本身已经设计得足够好。
+
 ### 复盘：预测对了什么、错了什么
+
+**预测对的部分**：two 档模型下 bucket_cap_mb 都测不出可测的影响，跟
+"重叠已经饱和，切多细都无所谓"的假设一致。`all_reduce` 调用次数
+随 bucket 变化的方向也完全符合机制预期。
+
+**预测错的部分**：week16.md 开头猜"774M 的 efficiency 应该比 124M
+略低"，且"bucket_cap_mb 在这个体量上开始表现出可测的差异"——**两条都
+没有观察到**，774M 跟 124M 一样测不出 bucket 效应。
+
+**方法论上的一个真实教训（比数字本身更值得记）**：本想顺带算一个
+"774M scaling efficiency"，结果算出 108.54%——**这在物理上不可能**，
+DDP 只会比单卡多花通信时间，不可能反而更快。问题出在比较方式上：
+`single_large` 和 `large_b25` 跑在两个**独立的 Modal 容器**上，各自分到
+的物理 A100 可能存在卡间硬件波动（云上常见，几个百分点很正常）——这次
+恰好差了 ~8.5%，比我们想测的 DDP 通信开销这个真实效应本身还大，
+**噪声把信号完全淹没了**。
+
+这不是这周才暴露的设计漏洞——Wk 15 的 scaling efficiency 之所以可信
+（96.56%-99.96%，数字工整、随 batch 单调变化），是因为那次的四个数字
+本质上都来自同一类可比的测量方式，且效应本身够大（不重叠情况下的
+comm_fraction 有 4.41%，是可测的量级）。这次 774M 的真实 DDP 开销
+可能本来就很小（如果重叠仍然接近饱和），小到不足以浮出跨容器噪声的
+水面——**用跨容器吞吐比较去测一个可能只有 1-2% 的效应，本身就不是
+一个可靠的方法**，得靠同一次运行内部的 `torch.profiler` comm_fraction
+（不受跨容器波动影响）才行，而这个脚本这次只统计了 `allreduce_calls`
+（次数），没有像 Wk 15 那样测 `comm_fraction`（时间占比）——这是这周
+脚本设计上的一个缺口，没有为了补这个数字再花钱重跑，留给 Wk 17 或
+之后需要更精确測 DDP 开销时再补上 `profile_ddp_step` 那部分。
+
+**给 Wk 17 的钩子**：这周间接确认了 week16.md 开头预想的一个区分——
+DDP 的"重叠"机制在测过的两个规模下都没有明显的失效点，说明"什么时候
+必须用 FSDP"这个问题的答案大概率不是"模型大了 DDP 通信就跟不上"，
+而是纯粹的**显存问题**：DDP 要求每张卡放一份完整模型 + 完整优化器状态，
+774M 在 A100-80GB 上已经用了 66.6GB（留给更大 batch 或更大模型的空间
+不多了），FSDP 解决的是"装不下"，不是"通信效率"——这个区分值得在
+Wk 17 开头讲清楚，避免把两件不同的事混为一谈。
