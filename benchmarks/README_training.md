@@ -4,7 +4,60 @@ Phase 2. Reproducible benchmarks for training LLMs across multiple GPUs —
 DDP, FSDP/ZeRO, and LoRA/QLoRA/DPO fine-tuning. Companion to
 [`README.md`](README.md) (Phase 1, single- and multi-GPU *inference*).
 
-**Status**: Week 15 of 28 — DDP scaling baseline complete.
+**Status**: Week 16 of 28 — DDP scaling baseline + bucket_cap_mb sweep complete.
+
+## Does `bucket_cap_mb` matter? (Week 16)
+
+DDP flushes accumulated gradients into an all-reduce once a "bucket" fills
+up (default 25MB) rather than waiting for the whole backward pass — this
+tests whether the bucket-size threshold itself is worth tuning, at two model
+sizes, given Wk 15 found DDP overlap already near-saturated on GPT-2 124M.
+
+**GPT-2 124M** (same model as Wk 15), batch=16, 2× A100:
+
+| bucket_cap_mb | tok/s | step time | all-reduce calls | max mem |
+|---|---|---|---|---|
+| 1   | 19,409.8 | 422.05ms | 2000 | 17.87 GB |
+| 25 (default) | 19,461.4 | 420.94ms | 520 | 17.86 GB |
+| 100 | 19,431.1 | 421.59ms | 160 | 17.87 GB |
+| 500 | 19,367.7 | 422.97ms | 40  | 17.87 GB |
+
+All four within 0.5% of each other — no measurable effect. `all_reduce`
+call count scales inversely with bucket size exactly as expected, confirming
+the measurement method works even though it finds nothing.
+
+**GPT-2 Large, 774M params** (~6× the gradient volume), batch=16, 2× A100:
+
+| bucket_cap_mb | tok/s | step time | all-reduce calls | max mem |
+|---|---|---|---|---|
+| 1   | 3,355.8 | 2441.18ms | 5840 | 66.60 GB |
+| 25 (default) | 3,335.0 | 2456.34ms | 4360 | 66.60 GB |
+| 100 | 3,329.9 | 2460.10ms | 1120 | 66.60 GB |
+| 500 | 3,368.2 | 2432.14ms | 240  | 66.60 GB |
+
+Within 1.2% and **non-monotonic** (dips then recovers) — judged as noise,
+same conclusion as 124M: no measurable `bucket_cap_mb` effect at either
+size tested with this batch/seq_len.
+
+**Attempted but not trustworthy — 774M scaling efficiency**: single-GPU
+3,072.6 tok/s vs. DDP (rank0) 3,335.0 tok/s at bucket_cap_mb=25 computes to
+**108.54%**, which is not physically possible (DDP can only add
+communication cost on top of the same computation, never subtract it). The
+single-GPU and DDP legs ran in separate Modal containers, likely on
+different physical A100 instances — cross-container GPU throughput variance
+(here, ~8.5%) exceeded the actual effect size being measured. Unlike Wk 15
+(where the effect, ~1-4%, was still bigger than typical run-to-run noise),
+whatever DDP overhead exists at 774M is apparently small enough to be
+swamped by inter-container variance. The reliable way to measure it would
+be a same-run `torch.profiler` comm_fraction (as Wk 15 did) rather than a
+cross-run throughput ratio — this script only counted `allreduce_calls`
+(a count), not comm time, so that number isn't available here. Not worth
+spending more GPU budget to chase; noted as a method limitation rather than
+forced into a false-confident number.
+
+*Script: [`experiments/wk16_bucket_sweep/bucket_sweep.py`](../experiments/wk16_bucket_sweep/bucket_sweep.py).*
+
+---
 
 ## DDP Scaling: 2× A100 vs 1× A100 (Week 15)
 
@@ -72,7 +125,9 @@ share of raw CUDA time.
 ```bash
 pip install modal
 modal run --detach experiments/wk15_ddp/ddp_scaling.py
+modal run --detach experiments/wk16_bucket_sweep/bucket_sweep.py
 ```
 
 Requires a Modal account (modal.com). 2× A100 GPU time costs more than 1×;
-budget ~$8-10 for the full Wk 15 sweep (6 legs).
+budget ~$8-10 for the Wk 15 sweep (6 legs), ~$10-14 for the Wk 16 sweep
+(9 legs).
