@@ -157,6 +157,16 @@ def bench(model_size: str, bucket_cap_mb: int):
     return json.loads(pathlib.Path(out_path).read_text())
 
 
+def bench_single(model_size: str):
+    """Single-GPU baseline — needed to compute scaling efficiency for the
+    "large" model, which (unlike 124m) has no Wk 15 baseline to reuse."""
+    import torch
+    device = "cuda:0"
+    model = build_model(device, model_size)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+    return run_steps(model, optimizer, device, N_WARMUP, N_MEASURE)
+
+
 def _run_and_save(model_size: str, bucket_cap_mb: int, result: dict):
     import json
     import pathlib
@@ -213,11 +223,25 @@ def bucket_large_b500():
     return _run_and_save("large", 500, bench("large", 500))
 
 
+@app.function(gpu="A100-80GB:1", image=image, volumes=VOLUMES, timeout=1800)
+def single_large():
+    import json
+    import pathlib
+    result = bench_single("large")
+    pathlib.Path("/results").mkdir(exist_ok=True)
+    out = {"model_size": "large", **result}
+    pathlib.Path("/results/single_large.json").write_text(json.dumps(out))
+    RESULTS.commit()
+    print(f"  -> saved /results/single_large.json: {result}")
+    return out
+
+
 LEGS = {
     "124m_b1": bucket_124m_b1, "124m_b25": bucket_124m_b25,
     "124m_b100": bucket_124m_b100, "124m_b500": bucket_124m_b500,
     "large_b1": bucket_large_b1, "large_b25": bucket_large_b25,
     "large_b100": bucket_large_b100, "large_b500": bucket_large_b500,
+    "single_large": single_large,
 }
 
 
@@ -231,7 +255,9 @@ def collect():
             p = pathlib.Path(f"/results/{ms}_b{b}.json")
             if p.exists():
                 rows.append(json.loads(p.read_text()))
-    return rows
+    single_large_p = pathlib.Path("/results/single_large.json")
+    single_large_row = json.loads(single_large_p.read_text()) if single_large_p.exists() else None
+    return rows, single_large_row
 
 
 @app.local_entrypoint()
@@ -247,7 +273,7 @@ def main():
         except Exception as e:
             print(f"\n!!! {name} failed: {type(e).__name__}: {e}\n")
 
-    rows = collect.remote()
+    rows, single_large_row = collect.remote()
     if not rows:
         print("No results on the volume yet.")
         return
@@ -265,3 +291,18 @@ def main():
                 continue
             print(f"  {b:<12}{r['tokens_per_sec']:<14,.1f}{r['step_time_ms']:<12.2f}"
                   f"{r['allreduce_calls']:<18}{r['max_memory_gb']:<12.2f}")
+
+    # The number Wk 16 actually wants: does "large" hold Wk 15's near-100%
+    # scaling efficiency, or does a 6x bigger gradient start to cost something?
+    # Compared at bucket_cap_mb=25 (PyTorch's default) for an apples-to-apples
+    # read against Wk 15's own default-bucket 124M number.
+    large_default = {r["bucket_cap_mb"]: r for r in rows if r["model_size"] == "large"}.get(25)
+    if single_large_row and large_default:
+        eff = large_default["tokens_per_sec"] / single_large_row["tokens_per_sec"]
+        print(f"\n{'='*70}\n  LARGE (774M) SCALING EFFICIENCY @ bucket_cap_mb=25\n{'='*70}")
+        print(f"  single-GPU tok/s: {single_large_row['tokens_per_sec']:,.1f}")
+        print(f"  DDP (rank0) tok/s: {large_default['tokens_per_sec']:,.1f}")
+        print(f"  scaling efficiency: {eff:.2%}  (Wk15's 124M @ bs16 was 98.85%)")
+    elif large_default and not single_large_row:
+        print("\n(single_large baseline missing — can't compute 774M scaling "
+              "efficiency yet; run LEGS_ONLY=single_large)")
