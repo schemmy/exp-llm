@@ -4,7 +4,63 @@ Phase 2. Reproducible benchmarks for training LLMs across multiple GPUs —
 DDP, FSDP/ZeRO, and LoRA/QLoRA/DPO fine-tuning. Companion to
 [`README.md`](README.md) (Phase 1, single- and multi-GPU *inference*).
 
-**Status**: Week 16 of 28 — DDP scaling baseline + bucket_cap_mb sweep complete.
+**Status**: Week 17 of 28 — DDP baseline, bucket_cap_mb sweep, and FSDP on Qwen2.5-7B complete.
+
+## Does DDP fit, and does FSDP fix it, on the real 7B model? (Week 17)
+
+Qwen2.5-7B-Instruct (the model P1's whole inference benchmark arc used), fp32
+unless noted, batch=1, seq_len=512, 1x A100-80GB (single-GPU probe) or 2x
+A100-80GB (FSDP FULL_SHARD, PyTorch's ZeRO-3 equivalent).
+
+**Single-GPU fp32 probe** — OOMs exactly where predicted: model load,
+optimizer creation, forward, and backward all completed; the failure hit on
+the first `optimizer.step()` call, where Adam lazily allocates its fp32
+`exp_avg`/`exp_avg_sq` state. Peak memory at failure: **78.14 GiB / 79.25 GiB
+card capacity** (181.94 MiB free when it gave up).
+
+**FSDP FULL_SHARD, same fp32 precision, 2x A100**:
+
+| | value |
+|---|---|
+| tokens/sec | 238.3 |
+| step time | 2148.99ms |
+| peak memory / GPU | 76.82 GB (71.54 GiB, ~7.7 GiB headroom) |
+
+Technically fits — but the run logs show continuous OOM-retry-and-recover
+warnings for the full ~2.5 minutes of warmup+measurement (roughly every
+step), meaning this wasn't a comfortable run, it was FULL_SHARD sharding
+enough to survive while thrashing against the memory ceiling nearly
+constantly. The throughput number is real but not representative of a
+stable production configuration.
+
+**FSDP FULL_SHARD, fp16 (loaded directly in fp16, not cast after), 2x A100**:
+
+| | value |
+|---|---|
+| tokens/sec | 1,098.4 |
+| step time | 466.13ms |
+| peak memory / GPU | 38.33 GB (35.69 GiB) |
+| comm_fraction | 22.91% |
+
+Zero OOM warnings — comfortable margin (>40 GiB free). Memory vs the fp32
+leg: 38.33/76.82 = **49.9%**, matching the theoretical halving almost
+exactly. Throughput vs fp32: **4.61x** — larger than pure byte-halving would
+explain (fp16 tensor-core compute plus the fp32 leg's OOM-retry thrashing
+both plausibly contribute; the two effects aren't separable from these two
+data points alone, so this isn't broken down into "how much is precision
+vs. how much is retry overhead").
+
+**comm_fraction vs. Wk 15's DDP number (4.41% at 124M)**: FSDP's 22.91% here
+is ~5.2x higher, consistent with FSDP's extra all-gather communication on
+top of DDP's simple all-reduce — but this isn't a controlled comparison
+(model size also changed, 124M vs 7B, ~61x more parameters), so "FSDP costs
+5.2x more communication than DDP" is not a valid claim from this data;
+"FSDP's measured comm_fraction here is notably higher, for reasons that
+make mechanistic sense" is what's actually supported.
+
+*Script: [`experiments/wk17_fsdp/fsdp_7b.py`](../experiments/wk17_fsdp/fsdp_7b.py).*
+
+---
 
 ## Does `bucket_cap_mb` matter? (Week 16)
 
@@ -126,8 +182,10 @@ share of raw CUDA time.
 pip install modal
 modal run --detach experiments/wk15_ddp/ddp_scaling.py
 modal run --detach experiments/wk16_bucket_sweep/bucket_sweep.py
+modal run --detach experiments/wk17_fsdp/fsdp_7b.py
 ```
 
 Requires a Modal account (modal.com). 2× A100 GPU time costs more than 1×;
 budget ~$8-10 for the Wk 15 sweep (6 legs), ~$10-14 for the Wk 16 sweep
-(9 legs).
+(9 legs), ~$12-16 for the Wk 17 sweep (3 legs, includes a ~15GB model
+download on first run).
